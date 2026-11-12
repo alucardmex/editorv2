@@ -82,3 +82,7 @@ input[type=color]{width:42px;height:28px;border:1px solid var(--line);border-rad
 .news{margin:6px 0 14px;line-height:1.6;color:#d7dbe4}
 #offline{position:fixed;left:0;right:0;top:46px;background:#7a1218;color:#fff;text-align:center;padding:8px;z-index:25}
 #offline.hidden{display:none}
+.upd{background:transparent;border-color:transparent;color:var(--dim);font-size:12px;padding:4px 8px}
+.upd.ok{color:#5fd38a}
+.upd.new{background:#1f5fd1;border-color:#1f5fd1;color:#fff;font-weight:700}
+.upd.busy{color:var(--yellow)}

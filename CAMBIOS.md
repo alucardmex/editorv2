@@ -1,5 +1,10 @@
 # Cambios de Editor V2
 
+## 1.3.0 (2026-11-12)
+- Arriba a la derecha ves si estas al dia o si hay version nueva.
+- Si sale una actualizacion mientras lo tienes abierto, un clic la instala y el editor se recarga solo (guarda antes tu proyecto).
+- Sigue revisando solo cada vez que lo abres y cada 10 minutos.
+
 ## 1.2.0 (2026-11-12)
 - Ya no aparece la ventana negra: Editor V2 abre directo en su ventana.
 - Se apaga solo al cerrar la ventana del editor.

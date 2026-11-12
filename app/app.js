@@ -752,6 +752,38 @@ ping(); setInterval(ping, 4000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) ping(); });
 window.addEventListener('pagehide', () => { try { navigator.sendBeacon('/api/bye'); } catch (e) {} });
 $('#newsClose').onclick = () => $('#news').classList.add('hidden');
+// actualizaciones: revisa al entrar y cada 10 minutos; si hay version nueva, un clic la instala
+let updInfo = null, updBusy = false;
+function setUpd(cls, text, title) { const b = $('#upd'); b.className = 'upd ' + cls; b.textContent = text; b.title = title || ''; }
+async function checkUpdates() {
+  if (updBusy) return;
+  setUpd('busy', 'Buscando actualizaciones…');
+  try {
+    const j = await (await fetch('/api/update/check', { cache: 'no-store' })).json();
+    updInfo = j;
+    if (!j.ok) setUpd('', 'v' + (j.current || '') + ' · ' + j.reason, 'No se pudo revisar GitHub: ' + j.reason);
+    else if (j.available) setUpd('new', '⬆ Actualizar a ' + j.remoteVersion, 'Hay una versión nueva. Clic para instalarla (no se pierde nada de tu proyecto).');
+    else setUpd('ok', '✓ Al día', 'Tienes la última versión (' + j.current + ')');
+  } catch (e) { setUpd('', 'Sin conexión con el editor'); }
+}
+async function applyUpdate() {
+  if (!updInfo || !updInfo.available || updBusy) return checkUpdates();
+  if (dirty) await save();
+  updBusy = true; setUpd('busy', 'Actualizando…');
+  try {
+    const j = await (await fetch('/api/update/apply', { method: 'POST' })).json();
+    if (!j.ok) { updBusy = false; setUpd('', 'No se pudo actualizar', j.reason || ''); return; }
+    if (!j.restarting) { updBusy = false; return checkUpdates(); }
+    const t0 = Date.now();
+    const wait = async () => {
+      try { const v = await (await fetch('/api/version', { cache: 'no-store' })).json(); if (v.version === j.to) { location.reload(); return; } } catch (e) {}
+      if (Date.now() - t0 < 30000) setTimeout(wait, 700); else { updBusy = false; setUpd('', 'Reinicia Editor V2 para terminar'); }
+    };
+    setTimeout(wait, 1200);
+  } catch (e) { updBusy = false; setUpd('', 'No se pudo actualizar'); }
+}
+$('#upd').onclick = () => (updInfo && updInfo.available ? applyUpdate() : checkUpdates());
+setTimeout(checkUpdates, 1500); setInterval(checkUpdates, 10 * 60 * 1000);
 loadProjects().catch(err => { $('#loading').textContent = 'No se pudo conectar con el editor: ' + err.message; });
 requestAnimationFrame(tick);
 window.__editor = { get P() { return P; }, seekSrc, play, pause, setView, get view() { return view; } };

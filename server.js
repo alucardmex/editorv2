@@ -73,6 +73,18 @@ const server = http.createServer((req, res) => {
     try { upd = JSON.parse(fs.readFileSync(path.join(__dirname, '.ultima-actualizacion.json'), 'utf8')); } catch (e) {}
     return json(res, 200, { app: 'editorv2', version: v, update: upd });
   }
+  if (p === '/api/update/check') {
+    return json(res, 200, require('./update').check());
+  }
+  if (p === '/api/update/apply' && req.method === 'POST') {
+    const u = require('./update'), c = u.check();
+    if (!c.ok) return json(res, 200, c);
+    if (!c.available) return json(res, 200, { ok: true, from: c.current, to: c.current, restarting: false });
+    const a = u.apply();
+    json(res, 200, Object.assign({ restarting: a.ok }, a));
+    if (a.ok) setTimeout(restart, 300);
+    return;
+  }
   if (p === '/api/ping') { lastPing = Date.now(); hadPing = true; return json(res, 200, { ok: true }); }
   if (p === '/api/bye') { lastBye = Date.now(); return json(res, 200, { ok: true }); }
   if (p === '/api/projects') {
@@ -128,6 +140,17 @@ const server = http.createServer((req, res) => {
   }
   res.writeHead(404); res.end('No encontrado');
 });
+
+// Reinicia el servidor con el codigo nuevo (la ventana del editor se recarga sola).
+function restart() {
+  console.log('Reiniciando con la version nueva...');
+  server.close();
+  let out = 'ignore';
+  try { out = fs.openSync(path.join(__dirname, 'editor.log'), 'a'); } catch (e) {}
+  const env = Object.assign({}, process.env, { EDITOR_NO_BROWSER: '1', EDITOR_PORT: String(PORT) });
+  require('child_process').spawn(process.execPath, [path.join(__dirname, 'server.js')], { cwd: __dirname, env, detached: true, stdio: ['ignore', out, out], windowsHide: true }).unref();
+  setTimeout(() => process.exit(0), 200);
+}
 
 // Se apaga solo cuando cierras la ventana del editor (la ventana avisa que sigue abierta cada 4 s;
 // minimizada el navegador puede espaciar los avisos hasta 1 por minuto, por eso el margen de 150 s).
