@@ -1,5 +1,9 @@
 # Cambios de Editor V2
 
+## 1.7.0 (2026-11-12)
+- Recursos: al abrir el editor se descargan solas las imagenes de la lista recursos\descargar.json a la carpeta recursos.
+- Las imagenes de recursos aparecen para elegirlas en las tarjetas 3D.
+
 ## 1.6.0 (2026-11-12)
 - Tarjetas 3D: mas pequenas, entran girando con perspectiva, flotan y salen girando.
 - Particulas al entrar cada tarjeta (se pueden apagar por tarjeta).

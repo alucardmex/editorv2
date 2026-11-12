@@ -85,6 +85,7 @@ const server = http.createServer((req, res) => {
     if (a.ok) setTimeout(restart, 300);
     return;
   }
+  if (p === '/api/recursos') { const r = require('./recursos'); return json(res, 200, { state: r.state, files: r.list() }); }
   if (p === '/api/ping') { lastPing = Date.now(); hadPing = true; return json(res, 200, { ok: true }); }
   if (p === '/api/bye') { lastBye = Date.now(); return json(res, 200, { ok: true }); }
   if (p === '/api/projects') {
@@ -136,6 +137,7 @@ const server = http.createServer((req, res) => {
       if (!fs.existsSync(d)) continue;
       for (const f of fs.readdirSync(d)) if (/\.(mp4|mov|m4a|mp3|wav|png|jpe?g|webp)$/i.test(f)) out.push(dir + '/' + f);
     }
+    try { for (const f of require('./recursos').list()) out.push(f); } catch (e) {}
     return json(res, 200, out);
   }
   res.writeHead(404); res.end('No encontrado');
@@ -173,6 +175,7 @@ function start() {
     console.log('Editor V2 abierto en ' + link + '  (carpeta de trabajo: ' + ROOT + ')');
     openWindow(link);
     setTimeout(() => fixShortcuts(__dirname), 1500);
+    setTimeout(() => { try { require('./recursos').sync(); } catch (e) {} }, 2500);
   });
 }
 start();
