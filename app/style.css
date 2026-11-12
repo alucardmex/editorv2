@@ -1,9 +1,13 @@
+@font-face{font-family:'Sora';font-weight:800;src:url(/app/fonts/sora-800.woff2) format('woff2')}
+@font-face{font-family:'Sora';font-weight:700;src:url(/app/fonts/sora-700.woff2) format('woff2')}
+@font-face{font-family:'Inter';font-weight:700;src:url(/app/fonts/inter-700.woff2) format('woff2')}
+@font-face{font-family:'Inter';font-weight:800;src:url(/app/fonts/inter-800.woff2) format('woff2')}
 :root{
   --bg:#0d0e12; --panel:#15171d; --panel2:#1c1f27; --line:#2a2e38; --text:#e7e9ee; --dim:#8a90a0;
   --accent:#e0242f; --yellow:#ffd400; --keep:#1f8a7a; --keep2:#27b39e; --cut:#5a1d22; --zoom:#3b6fe0; --card:#c06be0; --music:#d08a28; --word:#3a4152;
 }
 *{box-sizing:border-box}
-html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font:13px/1.35 Inter,system-ui,Segoe UI,Arial,sans-serif;overflow:hidden}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font:13px/1.35 'Segoe UI',system-ui,Segoe UI,Arial,sans-serif;overflow:hidden}
 button{background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:5px 10px;font:inherit;cursor:pointer}
 button:hover{border-color:#4a5060}
 button.primary{background:var(--accent);border-color:var(--accent);font-weight:700}

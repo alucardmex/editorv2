@@ -4,8 +4,6 @@
 <meta charset="utf-8">
 <title>Editor V2</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
 <link rel="icon" href="/app/icono.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/app/style.css">
 </head>
@@ -58,6 +56,8 @@
       <span class="tc" id="tcOut">00:00.00</span>
       <span class="tc dim" id="tcSrc" title="Tiempo en el video original">orig 00:00.00</span>
       <label class="chk" title="Música de fondo en la vista previa (M)"><input type="checkbox" id="chkMusic" checked> Música</label>
+      <label class="chk" title="Efectos de sonido en la vista previa"><input type="checkbox" id="chkSfx" checked> Sonidos</label>
+      <label class="chk" title="Corrección de color en la vista previa"><input type="checkbox" id="chkGrade" checked> Color</label>
       <label class="chk" title="Ver guías: zonas de TikTok y bandas"><input type="checkbox" id="chkGuides"> Guías</label>
     </div>
   </section>
@@ -69,6 +69,7 @@
     <button id="btnToggle" title="Quitar / restaurar el clip elegido (Supr)">⊘ Quitar/Restaurar</button>
     <button id="btnAddZoom" title="Agregar zoom en el cursor (Z)">＋ Zoom</button>
     <button id="btnAddCard" title="Agregar gráfico en el cursor (C)">＋ Gráfico</button>
+    <button id="btnAddFx" title="Agregar efecto en el cursor: sonido, partículas, texto 3D, destello (E)">＋ Efecto</button>
     <div class="grow"></div>
     <span class="hint">Rueda: desplazar · Ctrl+rueda: acercar · Arrastra bordes para recortar</span>
     <button id="btnZoomOut" title="Alejar línea de tiempo (-)">−</button>
@@ -89,7 +90,7 @@
       <tr><td>← / →</td><td>Un cuadro (Shift: 1 segundo)</td></tr>
       <tr><td>S</td><td>Dividir el clip en el cursor</td></tr>
       <tr><td>Supr / Retroceso</td><td>Quitar/restaurar clip · borrar zoom o gráfico</td></tr>
-      <tr><td>Z / C</td><td>Agregar zoom / gráfico en el cursor</td></tr>
+      <tr><td>Z / C / E</td><td>Agregar zoom / gráfico / efecto en el cursor</td></tr>
       <tr><td>V</td><td>Cambiar vista Editado / Original</td></tr>
       <tr><td>M</td><td>Música encendida / apagada</td></tr>
       <tr><td>Ctrl+Z / Ctrl+Y</td><td>Deshacer / rehacer</td></tr>

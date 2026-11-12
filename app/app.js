@@ -67,11 +67,14 @@ function buildGroups() {
   groups = [];
   const st = P.subtitles || {};
   const max = st.style === 'frase' ? Math.max(4, st.maxWords || 7) : Math.max(1, st.maxWords || 3);
+  // que el bloque quepa en una linea: ~ancho util / ancho medio de una letra mayuscula gruesa
+  const maxChars = Math.max(6, Math.floor(940 / ((st.size || 80) * 0.74)));
   const ws = P.words.filter(w => !w.hidden && keptAt((w.start + w.end) / 2)).sort((a, b) => a.start - b.start);
   let g = null;
   for (let i = 0; i < ws.length; i++) {
     const w = ws[i], prev = ws[i - 1];
-    const brk = !g || g.words.length >= max || (prev && (w.start - prev.end) > 0.35) || (prev && /[.!?…]$/.test(prev.text.trim())) ||
+    const chars = g ? g.words.reduce((a, x) => a + cleanWord(x.text).length + 1, 0) + cleanWord(w.text).length : 0;
+    const brk = !g || g.words.length >= max || (st.style !== 'frase' && chars > maxChars) || (prev && (w.start - prev.end) > 0.35) || (prev && /[.!?…]$/.test(prev.text.trim())) ||
       (prev && keptAt((prev.start + prev.end) / 2) !== keptAt((w.start + w.end) / 2) && (w.start - prev.end) > 0.12);
     if (brk) { g = { words: [], start: w.start }; groups.push(g); }
     g.words.push(w);
@@ -85,7 +88,7 @@ function buildGroups() {
 }
 
 // ---------- historial ----------
-const snapKeys = ['segments', 'words', 'zooms', 'cards', 'music', 'subtitles', 'speed', 'layout', 'status'];
+const snapKeys = ['segments', 'words', 'zooms', 'cards', 'effects', 'music', 'subtitles', 'speed', 'layout', 'status', 'style', 'camera', 'grading'];
 function snap() { const o = {}; for (const k of snapKeys) o[k] = P[k]; return JSON.stringify(o); }
 function pushUndo() { undoStack.push(snap()); if (undoStack.length > 150) undoStack.shift(); redoStack = []; }
 function restore(s) { const o = JSON.parse(s); for (const k of snapKeys) P[k] = o[k]; rebuild(); renderInspector(); drawAll(); }
@@ -112,7 +115,7 @@ async function loadProject(name) {
   const r = await fetch('/api/project?name=' + encodeURIComponent(name));
   if (!r.ok) return toast('No se pudo abrir ' + name);
   P = await r.json(); projName = name;
-  P.zooms = P.zooms || []; P.cards = P.cards || []; P.words = P.words || []; P.status = P.status || {};
+  P.zooms = P.zooms || []; P.cards = P.cards || []; P.effects = P.effects || []; P.words = P.words || []; P.status = P.status || {};
   P.subtitles = P.subtitles || { style: 'amarillo', maxWords: 3, y: 770, size: 84 };
   faceTrack = P.faces || [];
   undoStack = []; redoStack = []; sel = null; setDirty(false);
@@ -120,6 +123,7 @@ async function loadProject(name) {
   vid.src = mediaUrl(P.source.proxy || P.source.file);
   vid.load();
   if (P.music && P.music.file) { mus.src = mediaUrl(P.music.file); mus.load(); } else mus.removeAttribute('src');
+  rebuild();
   try { mediaList = await (await fetch('/api/media')).json(); } catch (e) { mediaList = []; }
   rebuild(); fitTimeline(); renderInspector(); updateApprove(); drawAll();
   document.title = 'Editor V2 — ' + name;
@@ -161,12 +165,36 @@ function musicWanted() { return view === 'edit' && P.music && P.music.file && P.
 function syncMusic(force) {
   if (!P) return;
   if (!musicWanted()) { mus.pause(); return; }
-  mus.volume = clamp(P.music.volume == null ? 0.15 : P.music.volume, 0, 1);
+  mus.volume = musicVolumeAt(cur());
   const want = srcToOut(cur()) + (P.music.offset || 0);
   if (mus.duration && want > mus.duration) { mus.pause(); return; }
   if (force || Math.abs(mus.currentTime - want) > 0.25) { try { mus.currentTime = want; } catch (e) {} }
   if (playing && mus.paused) mus.play().catch(() => {});
   if (!playing && !mus.paused) mus.pause();
+}
+// musica: baja mientras hablas (ducking) y sube en las pausas
+let duckGain = 1;
+function musicVolumeAt(t) {
+  const m = P.music || {}, base = clamp(m.volume == null ? 0.15 : m.volume, 0, 1);
+  if (!m.duck || m.duck.enabled === false) return base;
+  const talking = P.words.some(w => !w.hidden && t >= w.start - 0.12 && t < w.end + 0.18);
+  const target = talking ? (m.duck.level == null ? 0.55 : m.duck.level) : 1;
+  duckGain += (target - duckGain) * 0.18;
+  return clamp(base * duckGain, 0, 1);
+}
+// efectos de sonido: suenan cuando el cursor de reproduccion pasa por su inicio (vista Editado)
+let lastFxT = null; const sfxCache = {};
+function playSfxBetween(t0, t1) {
+  if (!$('#chkSfx') || !$('#chkSfx').checked) return;
+  for (const e of P.effects || []) {
+    if (!e.file || e.enabled === false) continue;
+    if (e.start > t0 && e.start <= t1 && keptAt(e.start)) {
+      try {
+        const a = new Audio(mediaUrl(e.file)); a.volume = clamp(e.volume == null ? 0.35 : e.volume, 0, 1); a.play().catch(() => {});
+        sfxCache[e.id] = a;
+      } catch (err) {}
+    }
+  }
 }
 function tick() {
   if (playing && P) {
@@ -175,20 +203,84 @@ function tick() {
       const m = keptAt(t);
       if (!m) {
         const n = map.find(x => x.s > t);
-        if (n) { vid.currentTime = n.s; syncMusic(true); } else pause();
+        if (n) { vid.currentTime = n.s; syncMusic(true); lastFxT = n.s - 0.001; } else pause();
       } else if (t >= m.e - 0.012) {
         const i = map.indexOf(m), n = map[i + 1];
-        if (n) { vid.currentTime = n.s; syncMusic(true); } else { pause(); vid.currentTime = m.e - 0.02; }
-      } else syncMusic(false);
+        if (lastFxT != null) playSfxBetween(lastFxT, m.e);
+        if (n) { vid.currentTime = n.s; syncMusic(true); lastFxT = n.s - 0.001; } else { pause(); vid.currentTime = m.e - 0.02; }
+      } else {
+        if (lastFxT != null && t > lastFxT && t - lastFxT < 1) playSfxBetween(lastFxT, t);
+        lastFxT = t; syncMusic(false);
+      }
     }
     if (vid.ended) pause();
     // seguir el cursor en la linea de tiempo
     const x = (toView(cur()) - scrollT) * pxPerSec, w = tl.clientWidth;
     if (x > w * 0.85 || x < 0) { scrollT = Math.max(0, toView(cur()) - (w * 0.15) / pxPerSec); }
     drawAll();
-  }
+  } else lastFxT = null;
   requestAnimationFrame(tick);
 }
+
+// ---------- estilo ----------
+const DEFAULT_STYLE = {
+  colores: { fondo: '#0A0A0A', texto: '#FFFFFF', acento: '#FFD400', secundario: '#E0242F' },
+  fuentes: { titulos: 'Sora', pesoTitulos: 800, texto: 'Inter', pesoTexto: 700 },
+  movimiento: 'suave',
+  subtitulos: { activos: true, modo: 'palabra', mayusculas: true, caja: true, textoActivo: '#0A0A0A', palabrasPorBloque: 3 }
+};
+function ST() {
+  const s = (P && P.style) || {};
+  return {
+    colores: Object.assign({}, DEFAULT_STYLE.colores, s.colores || {}),
+    fuentes: Object.assign({}, DEFAULT_STYLE.fuentes, s.fuentes || {}),
+    movimiento: s.movimiento || DEFAULT_STYLE.movimiento,
+    subtitulos: Object.assign({}, DEFAULT_STYLE.subtitulos, s.subtitulos || {})
+  };
+}
+const fontT = (st, size, w) => `${w || st.fuentes.pesoTitulos} ${size}px "${st.fuentes.titulos}", Sora, Inter, "Segoe UI", Arial, sans-serif`;
+const fontB = (st, size, w) => `${w || st.fuentes.pesoTexto} ${size}px "${st.fuentes.texto}", Inter, "Segoe UI", Arial, sans-serif`;
+// entradas segun el movimiento elegido
+function enter(st, p) {
+  if (st.movimiento === 'energico') return easeBack(p);
+  if (st.movimiento === 'cinematico') return 1 - Math.pow(2, -10 * p);
+  return easeOut(p);
+}
+const inDur = st => st.movimiento === 'cinematico' ? 0.5 : st.movimiento === 'energico' ? 0.22 : 0.32;
+
+// iconos lineales (24x24)
+const ICONS = {
+  store: 'M3 9l1.5-5h15L21 9M3 9h18v2a3 3 0 0 1-6 0 3 3 0 0 1-6 0 3 3 0 0 1-6 0zM5 13v7h14v-7M10 20v-4h4v4',
+  calendar: 'M4 6h16v14H4zM4 10h16M8 3v4M16 3v4',
+  pin: 'M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11zM12 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z',
+  mail: 'M3 6h18v12H3zM3 7l9 6 9-6',
+  user: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0',
+  users: 'M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM2 21a7 7 0 0 1 14 0M16 3.5a4 4 0 0 1 0 7.5M18 14a6 6 0 0 1 4 7',
+  fire: 'M12 22a7 7 0 0 0 7-7c0-4-3-6-4-9-1 2-2 3-4 3 0-2-1-4-2-5-1 4-4 6-4 11a7 7 0 0 0 7 7z',
+  phone: 'M7 2h10v20H7zM11 18h2',
+  gift: 'M3 8h18v4H3zM5 12v9h14v-9M12 8v13M12 8S10 3 7.5 4 9 8 12 8zM12 8s2-5 4.5-4S15 8 12 8z',
+  alert: 'M12 3l10 18H2zM12 10v5M12 18h.01',
+  star: 'M12 3l2.8 5.8 6.2.9-4.5 4.4 1.1 6.2L12 17.3 6.4 20.3l1.1-6.2L3 9.7l6.2-.9z',
+  ticket: 'M3 8a2 2 0 0 0 2-2h14a2 2 0 0 0 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 0-2 2H5a2 2 0 0 0-2-2v-2a2 2 0 0 0 0-4zM14 6v12',
+  chat: 'M21 12a8 8 0 0 1-11.6 7.1L4 20l1.1-4.6A8 8 0 1 1 21 12zM8.5 12h.01M12 12h.01M15.5 12h.01',
+  gamepad: 'M6 8h12a4 4 0 0 1 4 4v1a3 3 0 0 1-5.4 1.8L15 13H9l-1.6 1.8A3 3 0 0 1 2 13v-1a4 4 0 0 1 4-4zM7 11v3M5.5 12.5h3M15.5 11.5h.01M17.5 13h.01',
+  smile: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01',
+  trophy: 'M8 4h8v5a4 4 0 0 1-8 0zM8 6H4a3 3 0 0 0 4 4M16 6h4a3 3 0 0 1-4 4M12 13v4M8 21h8M9 21l1-4h4l1 4',
+  check: 'M4 12l5 5L20 6',
+  bolt: 'M13 2L4 14h7l-1 8 9-12h-7z'
+};
+const iconPaths = {};
+function iconPath(name) { if (!ICONS[name]) return null; return iconPaths[name] || (iconPaths[name] = new Path2D(ICONS[name])); }
+function drawIcon(c, name, x, y, size, color) {
+  const p = iconPath(name); if (!p) return false;
+  c.save(); c.translate(x - size / 2, y - size / 2); c.scale(size / 24, size / 24);
+  c.strokeStyle = color; c.lineWidth = 2.2; c.lineCap = 'round'; c.lineJoin = 'round'; c.stroke(p); c.restore(); return true;
+}
+// "Stand *Huawei*" -> partes con acento
+function parts(text) { const out = []; String(text || '').split(/(\*[^*]+\*)/).forEach(s => { if (!s) return; if (/^\*.*\*$/.test(s)) out.push({ s: s.slice(1, -1), acc: true }); else out.push({ s, acc: false }); }); return out; }
+function drawParts(c, ps, x, y, colorN, colorA, upper) { for (const p of ps) { const s = upper ? p.s.toUpperCase() : p.s; c.fillStyle = p.acc ? colorA : colorN; c.fillText(s, x, y); x += c.measureText(s).width; } return x; }
+function partsWidth(c, ps, upper) { return ps.reduce((a, p) => a + c.measureText(upper ? p.s.toUpperCase() : p.s).width, 0); }
+function fitParts(c, ps, fontFn, size, maxW, upper) { let s = size; c.font = fontFn(s); while (partsWidth(c, ps, upper) > maxW && s > 24) { s -= 2; c.font = fontFn(s); } return s; }
 
 // ---------- composicion del cuadro ----------
 function zoomAt(t) {
@@ -200,6 +292,9 @@ function zoomAt(t) {
       if (zz.x != null) cx = zz.x; if (zz.y != null) cy = zz.y;
     }
   }
+  // camara en movimiento (nivel 3): empuje lento dentro de cada clip
+  const cam = P.camera || {};
+  if (cam.drift) { const m = keptAt(t); if (m) { const p = clamp((t - m.s) / Math.max(0.3, m.e - m.s), 0, 1); z *= 1 + cam.drift * p; } }
   return { z, cx, cy };
 }
 function faceAt(t) {
@@ -212,69 +307,127 @@ function roundRect(c, x, y, w, h, r) { c.beginPath(); c.moveTo(x + r, y); c.arcT
 function fitFont(c, text, font, size, maxW) { let s = size; c.font = font.replace('{s}', s); while (c.measureText(text).width > maxW && s > 20) { s -= 2; c.font = font.replace('{s}', s); } return s; }
 
 function drawCard(c, card, t) {
-  const L = P.layout, inP = clamp((t - card.start) / 0.22, 0, 1), outP = clamp((card.end - t) / 0.15, 0, 1);
+  const st = ST(), K = st.colores, L = P.layout;
+  const inP = clamp((t - card.start) / inDur(st), 0, 1), outP = clamp((card.end - t) / 0.18, 0, 1);
   const a = Math.min(easeOut(inP), outP); if (a <= 0) return;
-  const sc = 0.82 + 0.18 * easeBack(inP);
+  const e = enter(st, inP);
   const cx = 540, cy = card.y != null ? card.y : (L.gameTop + L.gameBottom) / 2;
   const hasSub = !!(card.subtitle && card.subtitle.trim());
-  const W = 900, H = hasSub ? 190 : 140, color = card.color || '#e0242f';
-  c.save(); c.globalAlpha = a; c.translate(cx, cy); c.scale(sc, sc);
-  c.shadowColor = 'rgba(0,0,0,.55)'; c.shadowBlur = 30; c.shadowOffsetY = 10;
-  roundRect(c, -W / 2, -H / 2, W, H, 28); c.fillStyle = 'rgba(12,12,16,0.92)'; c.fill();
+  const W = 900, H = hasSub ? 230 : 170, accent = card.color || K.secundario;
+  c.save(); c.globalAlpha = a; c.translate(cx + (1 - e) * -60, cy + (1 - e) * 26);
+  c.shadowColor = 'rgba(0,0,0,.55)'; c.shadowBlur = 40; c.shadowOffsetY = 14;
+  roundRect(c, -W / 2, -H / 2, W, H, 30); c.fillStyle = hexA(K.fondo, 0.92); c.fill();
   c.shadowColor = 'transparent';
-  c.lineWidth = 4; c.strokeStyle = color; c.stroke();
+  // barra de color a la izquierda
+  c.save(); roundRect(c, -W / 2, -H / 2, W, H, 30); c.clip(); c.fillStyle = accent; c.fillRect(-W / 2, -H / 2, 14, H); c.restore();
   // icono
-  const ix = -W / 2 + 92;
-  c.beginPath(); c.arc(ix, 0, 60, 0, Math.PI * 2); c.fillStyle = color; c.fill();
-  c.font = '64px "Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
-  c.fillStyle = '#fff'; c.fillText(card.icon || '★', ix, 4);
+  const ix = -W / 2 + 44 + 65, iy = 0;
+  roundRect(c, ix - 65, iy - 65, 130, 130, 30); c.fillStyle = accent; c.fill();
+  if (!drawIcon(c, card.icon, ix, iy, 76, '#FFFFFF')) { c.font = '64px "Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = '#fff'; c.fillText(card.icon || '★', ix, iy + 4); }
   // textos
-  const tx = ix + 90, maxW = W / 2 - tx - 34;
-  c.textAlign = 'left';
-  const title = (card.title || '').toUpperCase();
-  const fs = fitFont(c, title, '{s}px Anton, Impact, "Arial Black", sans-serif', 84, maxW + (W / 2 - 34) - (W / 2 - 34));
-  c.fillStyle = '#ffd400'; c.textBaseline = hasSub ? 'alphabetic' : 'middle';
-  c.fillText(title, tx, hasSub ? -2 : 4);
+  const tx = ix + 65 + 34, maxW = W / 2 - 40 - tx;
+  const ps = parts(card.title);
+  const fs = fitParts(c, ps, s => fontT(st, s), 88, maxW, true);
+  c.textAlign = 'left'; c.textBaseline = hasSub ? 'alphabetic' : 'middle';
+  drawParts(c, ps, tx, hasSub ? 8 : 6, K.texto, K.acento, true);
   if (hasSub) {
-    const sub = card.subtitle.toUpperCase();
-    fitFont(c, sub, '800 {s}px Inter, "Segoe UI", Arial, sans-serif', 40, maxW + (W / 2 - 34) - (W / 2 - 34));
-    c.fillStyle = 'rgba(255,255,255,.88)'; c.textBaseline = 'top'; c.fillText(sub, tx, 18);
+    const sub = card.subtitle.toUpperCase(); c.font = fontB(st, 40); fitFont(c, sub, fontB(st, '{s}').replace('{s}px', '{s}px'), 40, maxW);
+    c.fillStyle = hexA(K.texto, 0.8); c.textBaseline = 'top'; c.fillText(sub, tx, 30);
   }
   void fs; c.restore();
 }
+function hexA(hex, a) { const h = String(hex || '#000').replace('#', ''); const n = parseInt(h.length === 3 ? h.split('').map(x => x + x).join('') : h, 16); return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`; }
 
 function drawSubtitle(c, t) {
-  const st = P.subtitles || {};
-  if (st.enabled === false) return;
+  const sp = P.subtitles || {};
+  if (sp.enabled === false) return;
   const g = groups.find(g => t >= g.start && t < g.end); if (!g) return;
   for (const card of P.cards) if (card.hideSubtitles && t >= card.start && t < card.end) return;
-  const frase = st.style === 'frase';
-  const size = st.size || (frase ? 60 : 84);
-  const font = frase ? `800 ${size}px Inter, "Segoe UI", Arial, sans-serif` : `${size}px Anton, Impact, "Arial Black", sans-serif`;
-  c.save(); c.font = font; c.textBaseline = 'middle'; c.lineJoin = 'round';
-  const words = g.words.map(w => ({ w, s: (frase ? cleanWord(w.text) : cleanWord(w.text).toUpperCase()) })).filter(x => x.s);
-  const space = c.measureText(' ').width, maxW = 940;
-  // partir en lineas
+  for (const e of P.effects || []) if (e.hideSubtitles && t >= e.start && t < e.end) return;
+  const st = ST(), K = st.colores, ss = st.subtitulos;
+  const frase = sp.style === 'frase' || ss.modo === 'frase';
+  const upper = ss.mayusculas !== false;
+  const size = sp.size || (frase ? 62 : 96);
+  c.save(); c.font = fontT(st, size); c.textBaseline = 'middle'; c.lineJoin = 'round';
+  const words = g.words.map(w => ({ w, s: upper ? cleanWord(w.text).toUpperCase() : cleanWord(w.text) })).filter(x => x.s);
+  const padX = ss.caja ? size * 0.2 : 0, gap = size * 0.18, maxW = 960;
   const lines = [[]]; let lw = 0;
-  for (const x of words) { x.width = c.measureText(x.s).width; if (lw + x.width > maxW && lines[lines.length - 1].length) { lines.push([]); lw = 0; } lines[lines.length - 1].push(x); lw += x.width + space; }
-  const lh = size * 1.12, y0 = (st.y || 770) - (lines.length - 1) * lh / 2;
+  for (const x of words) { x.width = c.measureText(x.s).width + padX * 2; if (lw + x.width > maxW && lines[lines.length - 1].length) { lines.push([]); lw = 0; } lines[lines.length - 1].push(x); lw += x.width + gap; }
+  const lh = size * 1.28, y0 = (sp.y || 770) - (lines.length - 1) * lh / 2;
+  // entrada suave del bloque
+  const inP = clamp((t - g.start) / 0.14, 0, 1), blockA = easeOut(inP);
   lines.forEach((ln, li) => {
-    const total = ln.reduce((a, x) => a + x.width, 0) + space * (ln.length - 1);
+    const total = ln.reduce((a, x) => a + x.width, 0) + gap * (ln.length - 1);
     let x = 540 - total / 2; const y = y0 + li * lh;
     for (const it of ln) {
       const active = t >= it.w.start && t < Math.max(it.w.end, it.w.start + 0.08);
       const spoken = t >= it.w.start;
-      const pop = active ? 1 + 0.08 * (1 - clamp((t - it.w.start) / 0.12, 0, 1)) : 1;
-      c.save(); c.translate(x + it.width / 2, y); c.scale(pop, pop);
-      c.textAlign = 'center';
-      c.lineWidth = frase ? 8 : 13; c.strokeStyle = '#000'; c.shadowColor = 'rgba(0,0,0,.6)'; c.shadowBlur = 10; c.shadowOffsetY = 4;
-      c.strokeText(it.s, 0, 0); c.shadowColor = 'transparent';
-      c.fillStyle = frase ? (active ? '#ffd400' : spoken ? '#fff' : 'rgba(255,255,255,.55)') : (active ? '#ffd400' : '#fff');
-      c.fillText(it.s, 0, 0); c.restore();
-      x += it.width + space;
+      const pop = active ? 1 + 0.06 * (1 - clamp((t - it.w.start) / 0.14, 0, 1)) : 1;
+      c.save(); c.globalAlpha = blockA; c.translate(x + it.width / 2, y + (1 - blockA) * 14); c.scale(pop, pop); c.textAlign = 'center';
+      if (ss.caja && active) {
+        c.shadowColor = 'rgba(0,0,0,.45)'; c.shadowBlur = 24; c.shadowOffsetY = 8;
+        roundRect(c, -it.width / 2, -size * 0.62, it.width, size * 1.2, size * 0.16); c.fillStyle = K.acento; c.fill();
+        c.shadowColor = 'transparent'; c.fillStyle = ss.textoActivo || K.fondo; c.fillText(it.s, 0, size * 0.04);
+      } else {
+        c.shadowColor = 'rgba(0,0,0,.75)'; c.shadowBlur = 18; c.shadowOffsetY = 5;
+        if (!ss.caja) { c.lineWidth = size * 0.12; c.strokeStyle = 'rgba(0,0,0,.85)'; c.strokeText(it.s, 0, size * 0.04); }
+        c.fillStyle = ss.caja ? K.texto : (active ? K.acento : (frase && !spoken ? hexA(K.texto, 0.55) : K.texto));
+        c.fillText(it.s, 0, size * 0.04);
+      }
+      c.restore(); x += it.width + gap;
     }
   });
   c.restore();
+}
+
+// ---------- efectos de nivel 3 ----------
+function rng(seed) { let s = 0; for (const ch of String(seed)) s = (s * 31 + ch.charCodeAt(0)) >>> 0; return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; }
+function drawParticles(c, e, t) {
+  const st = ST(), K = st.colores, dur = Math.max(0.3, e.end - e.start), p = clamp((t - e.start) / dur, 0, 1);
+  const r = rng(e.id), n = e.count || 70, x0 = e.x != null ? e.x : 540, y0 = e.y != null ? e.y : (P.layout.gameTop + P.layout.gameBottom) / 2;
+  const cols = [K.acento, K.secundario, '#FFFFFF'];
+  c.save();
+  for (let i = 0; i < n; i++) {
+    const ang = r() * Math.PI * 2, sp = 380 + r() * 820, life = 0.55 + r() * 0.45, sz = 6 + r() * 12, col = cols[i % 3], rot0 = r() * 6;
+    const q = clamp(p / life, 0, 1); if (q >= 1) continue;
+    const tt = q * dur * life, x = x0 + Math.cos(ang) * sp * tt * (1 - q * 0.35), y = y0 + Math.sin(ang) * sp * tt * (1 - q * 0.35) + 520 * tt * tt;
+    c.globalAlpha = (1 - q) * (q < 0.08 ? q / 0.08 : 1); c.fillStyle = col;
+    c.save(); c.translate(x, y); c.rotate(rot0 + q * 8);
+    if (i % 2) c.fillRect(-sz / 2, -sz / 4, sz, sz / 2); else { c.beginPath(); c.arc(0, 0, sz / 2.4, 0, Math.PI * 2); c.fill(); }
+    c.restore();
+  }
+  c.restore();
+}
+function drawText3D(c, e, t) {
+  const st = ST(), K = st.colores, dur = e.end - e.start;
+  const inP = clamp((t - e.start) / 0.45, 0, 1), outP = clamp((e.end - t) / 0.25, 0, 1);
+  const a = Math.min(1, outP), k = 1 - Math.pow(1 - inP, 4);
+  const x = e.x != null ? e.x : 540, y = e.y != null ? e.y : (P.layout.gameTop + P.layout.gameBottom) / 2;
+  const lines = String(e.text || '').split('|');
+  const size = e.size || 132, depth = 16;
+  c.save(); c.globalAlpha = a; c.translate(x, y);
+  const sc = 0.55 + 0.45 * k, tilt = (1 - k) * 0.9;
+  c.scale(sc, sc * (1 - tilt * 0.45)); c.rotate(-0.06 * (1 - k));
+  c.textAlign = 'center'; c.textBaseline = 'middle';
+  const lh = size * 1.02, y0 = -(lines.length - 1) * lh / 2;
+  lines.forEach((ln, i) => {
+    const ps = parts(ln); c.font = fontT(st, size, 800);
+    const w = partsWidth(c, ps, true); let fsz = size; while (w * fsz / size > 980 && fsz > 50) fsz -= 4; c.font = fontT(st, fsz, 800);
+    const ww = partsWidth(c, ps, true), yy = y0 + i * lh;
+    c.textAlign = 'left';
+    for (let d = depth; d > 0; d--) { c.fillStyle = d === depth ? 'rgba(0,0,0,.55)' : hexA(K.secundario, 0.35 + 0.5 * (1 - d / depth)); const px = -ww / 2 + d * 1.2, py = yy + d * 1.6; drawParts(c, ps.map(p => ({ s: p.s, acc: false })), px, py, c.fillStyle, c.fillStyle, true); }
+    drawParts(c, ps, -ww / 2, yy, K.texto, K.acento, true);
+  });
+  void dur; c.restore();
+}
+function drawFlash(c, e, t) { const p = clamp((t - e.start) / Math.max(0.05, e.end - e.start), 0, 1); c.save(); c.globalAlpha = (e.strength || 0.55) * (1 - p) * (1 - p); c.fillStyle = '#fff'; c.fillRect(0, 0, 1080, 1920); c.restore(); }
+function drawEffects(c, t) {
+  for (const e of P.effects || []) {
+    if (e.enabled === false || t < e.start || t >= e.end) continue;
+    if (e.type === 'particles') drawParticles(c, e, t);
+    else if (e.type === 'text3d') drawText3D(c, e, t);
+    else if (e.type === 'flash') drawFlash(c, e, t);
+  }
 }
 
 function drawScreen() {
@@ -283,6 +436,8 @@ function drawScreen() {
   c.setTransform(scr.width / 1080, 0, 0, scr.height / 1920, 0, 0);
   c.fillStyle = '#000'; c.fillRect(0, 0, 1080, 1920);
   if (vid.readyState >= 2) {
+    const grade = P.grading && P.grading.enabled !== false && P.grading.filter && $('#chkGrade') && $('#chkGrade').checked ? P.grading.filter : 'none';
+    c.filter = grade;
     c.drawImage(vid, 0, 0, 1080, 1920);
     const zz = zoomAt(t);
     if (zz.z > 1.001) {
@@ -294,8 +449,10 @@ function drawScreen() {
       c.drawImage(vid, (cx - w / 2) * k, (cy - h / 2) * k, w * k, h * k, 0, L.camTop, 1080, bandH);
       c.restore();
     }
+    c.filter = 'none';
   }
   for (const card of P.cards) if (t >= card.start && t < card.end) drawCard(c, card, t);
+  drawEffects(c, t);
   drawSubtitle(c, t);
   if ($('#chkGuides').checked) {
     c.save(); c.fillStyle = 'rgba(224,36,47,.18)'; c.fillRect(0, 0, 1080, 220); c.fillRect(0, 1500, 1080, 420); c.fillRect(960, 220, 120, 1280);
@@ -316,6 +473,7 @@ const ROWS = [
   { key: 'words', name: 'Subtítulos', h: 30 },
   { key: 'zoom', name: 'Zoom', h: 28 },
   { key: 'cards', name: 'Gráficos', h: 34 },
+  { key: 'effects', name: 'Efectos', h: 30 },
   { key: 'music', name: 'Música', h: 26 },
 ];
 let rowY = {};
@@ -338,6 +496,7 @@ function itemsFor(rowKey) {
     case 'words': return P.words.map(w => ({ type: 'word', id: w.id, obj: w, a: w.start, b: w.end }));
     case 'zoom': return P.zooms.map(z => ({ type: 'zoom', id: z.id, obj: z, a: z.start, b: z.end }));
     case 'cards': return P.cards.map(c => ({ type: 'card', id: c.id, obj: c, a: c.start, b: c.end }));
+    case 'effects': return (P.effects || []).map(e => ({ type: 'effect', id: e.id, obj: e, a: e.start, b: e.end }));
     case 'music': return P.music && P.music.file ? [{ type: 'music', id: 'music', obj: P.music, a: 0, b: P.source.duration }] : [];
   }
   return [];
@@ -374,7 +533,7 @@ function drawTimeline() {
       label(c, segText(s), x, vy.y + 4, w, vy.h - 8, '#e9fffb');
       if (s.note) { c.fillStyle = '#ffd400'; c.font = '11px Inter'; c.fillText('⚠', x + 3, vy.y + vy.h - 18); }
       // marca de corte
-      if (s !== map[0].seg) { c.fillStyle = '#e0242f'; c.fillRect(x - 1, vy.y, 2, vy.h); }
+      if (map.length && s !== map[0].seg) { c.fillStyle = '#e0242f'; c.fillRect(x - 1, vy.y, 2, vy.h); }
     }
   }
   // audio (onda)
@@ -416,6 +575,13 @@ function drawTimeline() {
     const x = X(a), w = (b - a) * pxPerSec; if (x > W || x + w < 0) continue;
     c.fillStyle = isSel('card', k.id) ? '#de9cf5' : '#8d3fb0'; c.fillRect(x, cy.y + 4, Math.max(2, w - 1), cy.h - 8);
     label(c, (k.icon || '') + ' ' + (k.title || ''), x, cy.y + 4, w, cy.h - 8, '#fff', 11);
+  }
+  // efectos
+  const ey = rowY.effects, FXC = { sfx: '#2f8f5b', particles: '#c99a16', text3d: '#c2410c', flash: '#6b7280' }, FXN = { sfx: '🔊', particles: '✨', text3d: '3D', flash: '⚡' };
+  for (const e of P.effects || []) for (const [a, b] of pieces(e.start, Math.max(e.end, e.start + 0.25))) {
+    const x = X(a), w = Math.max(8, (b - a) * pxPerSec); if (x > W || x + w < 0) continue;
+    c.fillStyle = isSel('effect', e.id) ? '#ffe07a' : (e.enabled === false ? '#33363f' : FXC[e.type] || '#555'); c.fillRect(x, ey.y + 4, w - 1, ey.h - 8);
+    label(c, (FXN[e.type] || '') + ' ' + (e.label || (e.type === 'sfx' ? (e.file || '').split('/').pop().replace(/\.mp3$/, '') : e.text || e.type)), x, ey.y + 4, w, ey.h - 8, isSel('effect', e.id) ? '#111' : '#fff', 10);
   }
   // musica
   const my = rowY.music;
@@ -527,7 +693,7 @@ tl.addEventListener('wheel', e => {
 // ---------- acciones ----------
 function selectedObj() {
   if (!sel || !P) return null;
-  const list = { segment: P.segments, word: P.words, zoom: P.zooms, card: P.cards }[sel.type];
+  const list = { segment: P.segments, word: P.words, zoom: P.zooms, card: P.cards, effect: P.effects || [] }[sel.type];
   if (sel.type === 'music') return P.music;
   return list ? list.find(o => o.id === sel.id) : null;
 }
@@ -543,10 +709,12 @@ function toggleOrDelete() {
   else if (sel.type === 'zoom') { mutate(() => { P.zooms = P.zooms.filter(z => z !== o); sel = null; }); toast('Zoom borrado'); }
   else if (sel.type === 'card') { mutate(() => { P.cards = P.cards.filter(z => z !== o); sel = null; }); toast('Gráfico borrado'); }
   else if (sel.type === 'word') { mutate(() => { o.hidden = !o.hidden; }); toast(o.hidden ? 'Palabra oculta en subtítulos' : 'Palabra visible'); }
+  else if (sel.type === 'effect') { mutate(() => { P.effects = P.effects.filter(z => z !== o); sel = null; }); toast('Efecto borrado'); }
   drawAll(); renderInspector();
 }
 function addZoom() { const t = cur(); mutate(() => { const z = { id: uid('z'), start: r3(t), end: r3(Math.min(P.source.duration, t + 1.5)), z: 1.25, label: '' }; P.zooms.push(z); sel = { type: 'zoom', id: z.id }; }); toast('Zoom agregado: ajusta el nivel a la izquierda'); }
-function addCard() { const t = cur(); mutate(() => { const k = { id: uid('c'), start: r3(t), end: r3(Math.min(P.source.duration, t + 2.2)), title: 'TEXTO', subtitle: '', icon: '⭐', color: '#e0242f' }; P.cards.push(k); sel = { type: 'card', id: k.id }; }); toast('Gráfico agregado: escribe el texto a la izquierda'); }
+function addEffect() { const t = cur(); mutate(() => { P.effects = P.effects || []; const e = { id: uid('e'), type: 'sfx', start: r3(t), end: r3(Math.min(P.source.duration, t + 0.6)), file: 'editor_media/sfx/whoosh-short.mp3', volume: 0.35 }; P.effects.push(e); sel = { type: 'effect', id: e.id }; }); toast('Efecto agregado: elige el tipo a la izquierda'); }
+function addCard() { const t = cur(); mutate(() => { const k = { id: uid('c'), start: r3(t), end: r3(Math.min(P.source.duration, t + 2.2)), title: 'Texto *clave*', subtitle: '', icon: 'star' }; P.cards.push(k); sel = { type: 'card', id: k.id }; }); toast('Gráfico agregado: escribe el texto a la izquierda'); }
 function stepFrames(n) {
   if (playing) pause();
   if (view === 'edit') seekSrc(outToSrc(clamp(srcToOut(cur()) + n / FPS, 0, outDur() - 0.001)));
@@ -579,6 +747,11 @@ function renderInspector(soft) {
       field('Música', m.file ? `<select data-k="music.file">${files.map(f => `<option ${f === m.file ? 'selected' : ''}>${esc(f)}</option>`).join('')}</select>
         <div class="row" style="margin-top:6px"><input type="range" min="0" max="0.6" step="0.01" data-k="music.volume" value="${m.volume || 0.15}"><label class="chk"><input type="checkbox" data-k="music.enabled" ${m.enabled !== false ? 'checked' : ''}> activa</label></div>` : '<div class="small">Sin música</div>') +
       `<details><summary class="small">Diseño (bandas y cara)</summary><div class="row">` + field('Cámara arriba', num('layout.camTop', L.camTop, 1)) + field('Cámara abajo', num('layout.camBottom', L.camBottom, 1)) + `</div><div class="row">` + field('Gameplay arriba', num('layout.gameTop', L.gameTop, 1)) + field('Gameplay abajo', num('layout.gameBottom', L.gameBottom, 1)) + `</div></details>` +
+      `<details open><summary class="small">Tu estilo${P.style && P.style.nombre ? ' · ' + esc(P.style.nombre) : ''}</summary>` +
+      `<div class="row">` + field('Acento', `<input type="color" data-k="style.colores.acento" value="${ST().colores.acento}">`) + field('Secundario', `<input type="color" data-k="style.colores.secundario" value="${ST().colores.secundario}">`) + field('Fondo', `<input type="color" data-k="style.colores.fondo" value="${ST().colores.fondo}">`) + `</div>` +
+      `<div class="row">` + field('Movimiento', `<select data-k="style.movimiento">${['suave', 'energico', 'cinematico'].map(v => `<option ${v === ST().movimiento ? 'selected' : ''}>${v}</option>`).join('')}</select>`) + field('Caja en la palabra', `<select data-k="style.subtitulos.caja"><option value="1" ${ST().subtitulos.caja ? 'selected' : ''}>sí</option><option value="" ${ST().subtitulos.caja ? '' : 'selected'}>no</option></select>`) + `</div>` +
+      `<div class="row">` + field('Cámara en movimiento', `<input type="range" min="0" max="0.12" step="0.005" data-k="camera.drift" value="${(P.camera && P.camera.drift) || 0}">`) + field('Música baja al hablar', `<input type="range" min="0.2" max="1" step="0.05" data-k="music.duck.level" value="${(P.music && P.music.duck && P.music.duck.level) || 1}">`) + `</div>` +
+      field('Color (filtro)', `<input type="text" data-k="grading.filter" value="${esc((P.grading && P.grading.filter) || '')}" placeholder="contrast(1.06) saturate(1.1)">`) + `</details>` +
       field('Notas para Claude', `<textarea data-k="status.notes" placeholder="Ej.: el zoom de 'gratis' más fuerte, cambia el beat…">${esc(P.status.notes || '')}</textarea>`);
   } else if (sel.type === 'segment') {
     $('#inspTitle').textContent = o.keep ? 'Clip (se queda)' : 'Corte (se quita)';
@@ -603,11 +776,24 @@ function renderInspector(soft) {
     $('#inspTitle').textContent = 'Gráfico sobre el gameplay';
     box.innerHTML = field('Título', `<input type="text" data-k="title" value="${esc(o.title)}">`) +
       field('Subtítulo (opcional)', `<input type="text" data-k="subtitle" value="${esc(o.subtitle || '')}">`) +
-      `<div class="row">` + field('Icono', `<input type="text" data-k="icon" value="${esc(o.icon || '')}">`) + field('Color', `<input type="color" data-k="color" value="${o.color || '#e0242f'}">`) + `</div>` +
+      `<div class="small">Pon entre *asteriscos* la palabra que va en color: Stand *Huawei*</div>` +
+      `<div class="row">` + field('Icono', `<select data-k="icon">${Object.keys(ICONS).map(n => `<option ${n === o.icon ? 'selected' : ''}>${n}</option>`).join('')}${ICONS[o.icon] ? '' : `<option selected>${esc(o.icon || '')}</option>`}</select>`) + field('Color de la barra', `<input type="color" data-k="color" value="${o.color || ST().colores.secundario}">`) + `</div>` +
       `<div class="row">` + field('Inicio (orig)', num('start', o.start)) + field('Fin (orig)', num('end', o.end)) + `</div>` +
       field('Altura (y, vacío = centro del gameplay)', `<input type="number" data-k="y" value="${o.y == null ? '' : o.y}" step="2">`) +
       `<label class="chk"><input type="checkbox" data-k="hideSubtitles" ${o.hideSubtitles ? 'checked' : ''}> Ocultar subtítulos mientras se ve</label>` +
       `<div class="btnrow"><button data-act="play">▶ Ver</button><button data-act="del">🗑 Borrar</button></div>`;
+  } else if (sel.type === 'effect') {
+    const FXL = { sfx: 'Efecto de sonido', particles: 'Partículas', text3d: 'Texto 3D', flash: 'Destello' };
+    $('#inspTitle').textContent = FXL[o.type] || 'Efecto';
+    const sfxFiles = Array.from(new Set([o.file, ...mediaList.filter(f => /sfx\//.test(f))].filter(Boolean)));
+    box.innerHTML = field('Tipo', `<select data-k="type">${Object.keys(FXL).map(k => `<option value="${k}" ${k === o.type ? 'selected' : ''}>${FXL[k]}</option>`).join('')}</select>`) +
+      (o.type === 'text3d' ? field('Texto (| = otra línea, *palabra* = color)', `<input type="text" data-k="text" value="${esc(o.text || '')}">`) + field('Tamaño', num('size', o.size || 132, 2)) : '') +
+      (o.type !== 'sfx' && o.type !== 'flash' ? `<div class="row">` + field('Posición x', num('x', o.x == null ? 540 : o.x, 2)) + field('Posición y', num('y', o.y == null ? Math.round((P.layout.gameTop + P.layout.gameBottom) / 2) : o.y, 2)) + `</div>` : '') +
+      field('Sonido', `<select data-k="file"><option value="">(sin sonido)</option>${sfxFiles.map(f => `<option ${f === o.file ? 'selected' : ''}>${esc(f)}</option>`).join('')}</select>`) +
+      field('Volumen del sonido', `<input type="range" min="0" max="1" step="0.01" data-k="volume" value="${o.volume == null ? 0.35 : o.volume}">`) +
+      `<div class="row">` + field('Inicio (orig)', num('start', o.start)) + field('Fin (orig)', num('end', o.end)) + `</div>` +
+      `<label class="chk"><input type="checkbox" data-k="hideSubtitles" ${o.hideSubtitles ? 'checked' : ''}> Ocultar subtítulos mientras se ve</label>` +
+      `<div class="btnrow"><button data-act="play">▶ Ver</button><button data-act="sound">🔊 Oír</button><button data-act="del">🗑 Borrar</button></div>`;
   } else if (sel.type === 'music') {
     sel = null; return renderInspector();
   }
@@ -621,9 +807,14 @@ $('#inspector').addEventListener('change', e => {
     if (!o) {
       if (k === 'speed') P.speed = v;
       else if (k.startsWith('sub.')) setPath(P.subtitles, k.slice(4), v);
+      else if (k === 'music.duck.level') { P.music.duck = P.music.duck || {}; P.music.duck.level = v; P.music.duck.enabled = v < 1; }
       else if (k.startsWith('music.')) { setPath(P.music, k.slice(6), v); if (k === 'music.file') { mus.src = mediaUrl(v); mus.load(); } }
       else if (k.startsWith('layout.')) setPath(P.layout, k.slice(7), v);
       else if (k.startsWith('status.')) setPath(P.status, k.slice(7), v);
+      else if (k.startsWith('style.')) { P.style = P.style || {}; if (k === 'style.subtitulos.caja') v = !!v; setPath(P.style, k.slice(6), v); }
+      else if (k.startsWith('camera.')) { P.camera = P.camera || {}; setPath(P.camera, k.slice(7), v); }
+      else if (k.startsWith('grading.')) { P.grading = P.grading || { enabled: true }; setPath(P.grading, k.slice(8), v); }
+      else if (k === 'music.duck.level') { P.music.duck = P.music.duck || { enabled: true }; P.music.duck.level = v; P.music.duck.enabled = v < 1; }
     } else if (sel.type === 'segment' && (k === 'start' || k === 'end')) {
       const segs = P.segments, i = segs.indexOf(o);
       if (k === 'start') { const prev = segs[i - 1]; v = clamp(v, prev ? prev.start + 0.034 : 0, o.end - 0.034); o.start = r3(v); if (prev) prev.end = r3(v); }
@@ -638,10 +829,12 @@ $('#inspector').addEventListener('input', e => {
   if (el.type === 'range') { const n = el.nextElementSibling; if (n && n.classList.contains('small') && k === 'z') n.textContent = '×' + Number(el.value).toFixed(2); }
   if (o && sel.type === 'card' && (k === 'title' || k === 'subtitle' || k === 'icon')) { o[k] = el.value; drawScreen(); setDirty(true); }
   if (o && sel.type === 'zoom' && k === 'z') { o.z = Number(el.value); drawScreen(); }
+  if (o && sel.type === 'effect' && k === 'text') { o.text = el.value; drawScreen(); setDirty(true); }
   if (!o && k === 'music.volume') { mus.volume = Number(el.value); }
 });
 $('#inspector').addEventListener('click', e => {
   const a = e.target.dataset.act; if (!a) return; const o = selectedObj();
+  if (a === 'sound' && o && o.file) { try { const au = new Audio(mediaUrl(o.file)); au.volume = clamp(o.volume == null ? 0.35 : o.volume, 0, 1); au.play(); } catch (err) {} return; }
   if (a === 'toggle' || a === 'del') toggleOrDelete();
   else if (a === 'split') splitAtCursor();
   else if (a === 'play' && o) { seekSrc(o.start); play(); const stopAt = o.end; const chk = () => { if (!playing) return; if (cur() >= stopAt - 0.02) pause(); else requestAnimationFrame(chk); }; requestAnimationFrame(chk); }
@@ -655,6 +848,7 @@ function renderWarnings() {
   for (const s of P.segments) if (s.keep && s.end - s.start < 0.25) out.push({ t: s.start, msg: 'Clip muy corto (' + Math.round((s.end - s.start) * 1000) + ' ms): puede sonar a salto', sel: { type: 'segment', id: s.id } });
   for (const k of P.cards) { if (!pieces(k.start, k.end).length || view === 'orig' && !map.some(m => k.end > m.s && k.start < m.e)) out.push({ t: k.start, err: true, msg: `Gráfico "${k.title}" cae en una parte cortada: no se verá`, sel: { type: 'card', id: k.id } }); }
   for (const z of P.zooms) { if (!map.some(m => z.end > m.s && z.start < m.e)) out.push({ t: z.start, err: true, msg: 'Zoom en una parte cortada: no se verá', sel: { type: 'zoom', id: z.id } }); }
+  for (const e of P.effects || []) { if (!map.some(m => e.start >= m.s && e.start < m.e)) out.push({ t: e.start, err: true, msg: 'Efecto en una parte cortada: no se verá ni sonará', sel: { type: 'effect', id: e.id } }); }
   const cs = P.cards.slice().sort((a, b) => a.start - b.start);
   for (let i = 1; i < cs.length; i++) if (cs[i].start < cs[i - 1].end - 0.05) out.push({ t: cs[i].start, msg: `Dos gráficos encimados: "${cs[i - 1].title}" y "${cs[i].title}"`, sel: { type: 'card', id: cs[i].id } });
   // huecos sin nada nuevo en pantalla > 3.5 s (salida)
@@ -679,7 +873,7 @@ function updateStats() {
   if (!P) return;
   const cuts = P.segments.filter(s => !s.keep).length;
   $('#statDur').innerHTML = `Final <b>${fmt(outDur())}</b> de ${fmt(P.source.duration)}`;
-  $('#statCuts').innerHTML = `<b>${cuts}</b> cortes · <b>${P.zooms.length}</b> zooms · <b>${P.cards.length}</b> gráficos`;
+  $('#statCuts').innerHTML = `<b>${cuts}</b> cortes · <b>${P.zooms.length}</b> zooms · <b>${P.cards.length}</b> gráficos · <b>${(P.effects || []).length}</b> efectos`;
 }
 
 // ---------- botones y teclado ----------
@@ -692,7 +886,8 @@ $('#btnUndo').onclick = undo; $('#btnRedo').onclick = redo;
 $('#btnSave').onclick = save;
 $('#btnApprove').onclick = async () => { if (!P) return; P.status.approved = !P.status.approved; updateApprove(); await save(); if (P.status.approved) toast('Listo ✓  Dile a Claude: "renderiza"', 3500); };
 $('#btnSplit').onclick = splitAtCursor; $('#btnToggle').onclick = toggleOrDelete;
-$('#btnAddZoom').onclick = addZoom; $('#btnAddCard').onclick = addCard;
+$('#btnAddZoom').onclick = addZoom; $('#btnAddCard').onclick = addCard; $('#btnAddFx').onclick = addEffect;
+$('#chkSfx').onchange = () => {}; $('#chkGrade').onchange = drawScreen;
 $('#btnZoomIn').onclick = () => { pxPerSec = Math.min(600, pxPerSec * 1.4); drawTimeline(); };
 $('#btnZoomOut').onclick = () => { pxPerSec = Math.max(1, pxPerSec / 1.4); drawTimeline(); };
 $('#btnZoomFit').onclick = () => { fitTimeline(); drawTimeline(); };
@@ -719,6 +914,7 @@ window.addEventListener('keydown', e => {
     case 'Delete': case 'Backspace': e.preventDefault(); toggleOrDelete(); break;
     case 'z': case 'Z': addZoom(); break;
     case 'c': case 'C': addCard(); break;
+    case 'e': case 'E': addEffect(); break;
     case 'v': case 'V': setView(view === 'edit' ? 'orig' : 'edit'); break;
     case 'm': case 'M': $('#chkMusic').checked = !$('#chkMusic').checked; syncMusic(true); toast($('#chkMusic').checked ? 'Música encendida' : 'Música apagada'); break;
     case '+': case '=': $('#btnZoomIn').click(); break;
@@ -728,7 +924,7 @@ window.addEventListener('keydown', e => {
 });
 window.addEventListener('beforeunload', e => { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
 window.addEventListener('resize', () => { resizeTl(); drawAll(); });
-if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => drawAll());
+if (document.fonts) Promise.all(['800 60px Sora', '700 60px Sora', '700 40px Inter', '800 40px Inter'].map(f => document.fonts.load(f).catch(() => {}))).then(() => drawAll());
 
 layoutRows(); resizeTl();
 fetch('/api/version').then(r => r.json()).then(j => {

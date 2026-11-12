@@ -1,5 +1,12 @@
 # Cambios de Editor V2
 
+## 1.4.0 (2026-11-12)
+- Usa tu estilo: fuentes Sora e Inter, palabra en caja amarilla, tarjetas con iconos lineales y *palabra* en color.
+- Nueva pista Efectos (nivel 3): sonidos, particulas, texto 3D y destellos. Tecla E para agregar.
+- Camara en movimiento, correccion de color y musica que baja cuando hablas, en la vista previa.
+- Interruptores Sonidos y Color debajo del video.
+- Los subtitulos se parten para caber en una linea.
+
 ## 1.3.0 (2026-11-12)
 - Arriba a la derecha ves si estas al dia o si hay version nueva.
 - Si sale una actualizacion mientras lo tienes abierto, un clic la instala y el editor se recarga solo (guarda antes tu proyecto).

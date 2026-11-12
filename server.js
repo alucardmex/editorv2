@@ -131,7 +131,7 @@ const server = http.createServer((req, res) => {
   if (p === '/api/media') {
     // lista audio/video de material/ para elegir musica u otros archivos
     const out = [];
-    for (const dir of ['material', 'musica', 'editor_media']) {
+    for (const dir of ['material', 'musica', 'editor_media', 'editor_media/sfx']) {
       const d = path.join(ROOT, dir);
       if (!fs.existsSync(d)) continue;
       for (const f of fs.readdirSync(d)) if (/\.(mp4|mov|m4a|mp3|wav)$/i.test(f)) out.push(dir + '/' + f);
