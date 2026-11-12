@@ -1,5 +1,11 @@
 # Cambios de Editor V2
 
+## 1.5.0 (2026-11-12)
+- Estilo de tus referencias: el gameplay va dentro de un marco con borde y encima salen paneles con etiqueta y titulo grande.
+- Subtitulos sin caja, en Anton, blancos con la palabra que dices en amarillo.
+- Nueva opcion Orden: camara arriba o gameplay arriba (panel Tu estilo).
+- Graficos de tipo Panel (llena el gameplay) o Tarjeta (encima).
+
 ## 1.4.0 (2026-11-12)
 - Usa tu estilo: fuentes Sora e Inter, palabra en caja amarilla, tarjetas con iconos lineales y *palabra* en color.
 - Nueva pista Efectos (nivel 3): sonidos, particulas, texto 3D y destellos. Tecla E para agregar.

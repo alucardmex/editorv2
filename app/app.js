@@ -311,7 +311,7 @@ function drawCard(c, card, t) {
   const inP = clamp((t - card.start) / inDur(st), 0, 1), outP = clamp((card.end - t) / 0.18, 0, 1);
   const a = Math.min(easeOut(inP), outP); if (a <= 0) return;
   const e = enter(st, inP);
-  const cx = 540, cy = card.y != null ? card.y : (L.gameTop + L.gameBottom) / 2;
+  const cx = 540, cy = card.y != null ? card.y : bands().game.dy + bands().game.sh / 2;
   const hasSub = !!(card.subtitle && card.subtitle.trim());
   const W = 900, H = hasSub ? 230 : 170, accent = card.color || K.secundario;
   c.save(); c.globalAlpha = a; c.translate(cx + (1 - e) * -60, cy + (1 - e) * 26);
@@ -348,12 +348,13 @@ function drawSubtitle(c, t) {
   const frase = sp.style === 'frase' || ss.modo === 'frase';
   const upper = ss.mayusculas !== false;
   const size = sp.size || (frase ? 62 : 96);
-  c.save(); c.font = fontT(st, size); c.textBaseline = 'middle'; c.lineJoin = 'round';
+  const subFont = ss.fuente ? `400 ${size}px "${ss.fuente}", Impact, "Arial Narrow", sans-serif` : fontT(st, size);
+  c.save(); c.font = subFont; c.textBaseline = 'middle'; c.lineJoin = 'round';
   const words = g.words.map(w => ({ w, s: upper ? cleanWord(w.text).toUpperCase() : cleanWord(w.text) })).filter(x => x.s);
   const padX = ss.caja ? size * 0.2 : 0, gap = size * 0.18, maxW = 960;
   const lines = [[]]; let lw = 0;
   for (const x of words) { x.width = c.measureText(x.s).width + padX * 2; if (lw + x.width > maxW && lines[lines.length - 1].length) { lines.push([]); lw = 0; } lines[lines.length - 1].push(x); lw += x.width + gap; }
-  const lh = size * 1.28, y0 = (sp.y || 770) - (lines.length - 1) * lh / 2;
+  const lh = size * 1.28, y0 = (sp.y || bands().seam - 50) - (lines.length - 1) * lh / 2;
   // entrada suave del bloque
   const inP = clamp((t - g.start) / 0.14, 0, 1), blockA = easeOut(inP);
   lines.forEach((ln, li) => {
@@ -370,7 +371,7 @@ function drawSubtitle(c, t) {
         c.shadowColor = 'transparent'; c.fillStyle = ss.textoActivo || K.fondo; c.fillText(it.s, 0, size * 0.04);
       } else {
         c.shadowColor = 'rgba(0,0,0,.75)'; c.shadowBlur = 18; c.shadowOffsetY = 5;
-        if (!ss.caja) { c.lineWidth = size * 0.12; c.strokeStyle = 'rgba(0,0,0,.85)'; c.strokeText(it.s, 0, size * 0.04); }
+        if (!ss.caja && ss.contorno !== false) { c.lineWidth = size * 0.12; c.strokeStyle = 'rgba(0,0,0,.85)'; c.strokeText(it.s, 0, size * 0.04); }
         c.fillStyle = ss.caja ? K.texto : (active ? K.acento : (frase && !spoken ? hexA(K.texto, 0.55) : K.texto));
         c.fillText(it.s, 0, size * 0.04);
       }
@@ -430,34 +431,114 @@ function drawEffects(c, t) {
   }
 }
 
+// bandas de la composicion: de donde sale cada parte del video original y a donde va
+function bands() {
+  const L = P.layout, camH = L.camBottom - L.camTop, gameH = L.gameBottom - L.gameTop;
+  const gameTop = L.order === 'game-top';
+  const cam = { sy: L.camTop, sh: camH, dy: gameTop ? L.camTop + gameH : L.camTop };
+  const game = { sy: L.gameTop, sh: gameH, dy: gameTop ? L.camTop : L.camTop + camH };
+  const f = L.frame || {}, inset = f.enabled ? (f.inset == null ? 26 : f.inset) : 0;
+  const frame = { x: inset, y: game.dy + inset, w: 1080 - inset * 2, h: gameH - inset * 2, r: f.enabled ? (f.radius == null ? 28 : f.radius) : 0, on: !!f.enabled };
+  const seam = gameTop ? cam.dy : game.dy;
+  return { cam, game, frame, seam, gameTop, top: L.camTop, bottom: L.camTop + camH + gameH };
+}
+function drawPanel(c, card, t, fr) {
+  const st = ST(), K = st.colores;
+  const inP = clamp((t - card.start) / 0.28, 0, 1), outP = clamp((card.end - t) / 0.16, 0, 1);
+  const a = Math.min(easeOut(inP), outP); if (a <= 0) return;
+  const e = easeOut(inP), accent = card.color || K.acento;
+  c.save(); roundRect(c, fr.x, fr.y, fr.w, fr.h, fr.r); c.clip();
+  c.globalAlpha = a;
+  // fondo oscuro con un brillo suave del color secundario
+  const g = c.createRadialGradient(fr.x + fr.w * 0.85, fr.y + fr.h * 0.2, 20, fr.x + fr.w * 0.85, fr.y + fr.h * 0.2, fr.w * 0.9);
+  g.addColorStop(0, hexA(K.secundario, 0.16)); g.addColorStop(1, hexA(K.fondo, 1));
+  c.fillStyle = K.fondo; c.fillRect(fr.x, fr.y, fr.w, fr.h); c.fillStyle = g; c.fillRect(fr.x, fr.y, fr.w, fr.h);
+  // rejilla sutil
+  c.strokeStyle = 'rgba(255,255,255,0.04)'; c.lineWidth = 1;
+  for (let x = fr.x; x < fr.x + fr.w; x += 48) { c.beginPath(); c.moveTo(x, fr.y); c.lineTo(x, fr.y + fr.h); c.stroke(); }
+  for (let y = fr.y; y < fr.y + fr.h; y += 48) { c.beginPath(); c.moveTo(fr.x, y); c.lineTo(fr.x + fr.w, y); c.stroke(); }
+  // icono grande al fondo a la derecha
+  if (ICONS[card.icon]) { c.save(); c.globalAlpha = a * 0.18; drawIcon(c, card.icon, fr.x + fr.w - 170, fr.y + fr.h / 2 + 10, 300, accent); c.restore(); }
+  const px = fr.x + 56, dx = (1 - e) * -40;
+  c.translate(dx, 0);
+  // etiqueta pequena arriba
+  c.textAlign = 'left'; c.textBaseline = 'top';
+  c.font = fontB(st, 30, 800); c.fillStyle = hexA(K.texto, 0.6);
+  const label = (card.label || '').toUpperCase().split('').join(' ');
+  c.fillText(label, px, fr.y + 46);
+  c.fillStyle = accent; c.fillRect(px, fr.y + 90, 70, 6);
+  // titulo grande
+  const ps = parts(card.title), maxW = fr.w - 112 - (ICONS[card.icon] ? 120 : 0);
+  const tf = s => `400 ${s}px "Anton", Impact, "Arial Narrow", sans-serif`;
+  const words = ps.map(p => p.s);
+  // titulo en 1 o 2 lineas
+  let lines = [ps];
+  c.font = tf(150);
+  if (partsWidth(c, ps, true) > maxW) {
+    const flat = []; ps.forEach(p => p.s.split(/(\s+)/).forEach(w => { if (w) flat.push({ s: w, acc: p.acc }); }));
+    let best = null;
+    for (let i = 1; i < flat.length; i++) { const l1 = flat.slice(0, i), l2 = flat.slice(i); const w = Math.max(partsWidth(c, l1, true), partsWidth(c, l2, true)); if (!best || w < best.w) best = { w, l: [l1, l2] }; }
+    if (best) lines = best.l.map(l => { while (l.length && !l[0].s.trim()) l.shift(); while (l.length && !l[l.length - 1].s.trim()) l.pop(); return l; });
+  }
+  let size = lines.length > 1 ? 130 : 150;
+  c.font = tf(size); while (Math.max(...lines.map(l => partsWidth(c, l, true))) > maxW && size > 50) { size -= 4; c.font = tf(size); }
+  const hasSub = !!(card.subtitle && card.subtitle.trim());
+  const blockH = lines.length * size * 1.02 + (hasSub ? 62 : 0);
+  let y = fr.y + 112 + (fr.h - 112 - 40 - blockH) / 2;
+  c.textBaseline = 'top';
+  for (const l of lines) { drawParts(c, l, px, y, K.texto, accent, true); y += size * 1.02; }
+  if (hasSub) { c.font = fontB(st, 44, 800); c.fillStyle = hexA(K.texto, 0.85); c.fillText(card.subtitle.toUpperCase(), px, y + 10); }
+  if (card.counter) { c.font = tf(46); c.textAlign = 'right'; c.textBaseline = 'bottom'; c.fillStyle = accent; c.fillText(card.counter, fr.x + fr.w - 44 - dx, fr.y + fr.h - 30); }
+  void words; c.restore();
+}
+
 function drawScreen() {
   if (!P) return;
-  const c = sctx, k = vid.videoWidth ? vid.videoWidth / 1080 : 0.5, t = cur(), L = P.layout;
+  const c = sctx, k = vid.videoWidth ? vid.videoWidth / 1080 : 0.5, t = cur(), L = P.layout, st = ST(), K = st.colores;
   c.setTransform(scr.width / 1080, 0, 0, scr.height / 1920, 0, 0);
   c.fillStyle = '#000'; c.fillRect(0, 0, 1080, 1920);
+  const B = bands();
   if (vid.readyState >= 2) {
     const grade = P.grading && P.grading.enabled !== false && P.grading.filter && $('#chkGrade') && $('#chkGrade').checked ? P.grading.filter : 'none';
     c.filter = grade;
     c.drawImage(vid, 0, 0, 1080, 1920);
-    const zz = zoomAt(t);
+    if (B.frame.on || B.gameTop) { c.filter = 'none'; c.fillStyle = K.fondo; c.fillRect(0, B.top, 1080, B.bottom - B.top); c.filter = grade; }
+    // camara (con zoom si hay)
+    const zz = zoomAt(t), camH = B.cam.sh;
+    let sx = 0, sy = B.cam.sy, sw = 1080, sh = camH;
     if (zz.z > 1.001) {
-      const bandH = L.camBottom - L.camTop, f = faceAt(t);
-      const w = 1080 / zz.z, h = bandH / zz.z;
-      const bias = L.zoomBiasY == null ? -45 : L.zoomBiasY; // un poco arriba de la cara para no cortar la gorra
-      const cx = clamp(zz.cx != null ? zz.cx : f.x, w / 2, 1080 - w / 2), cy = clamp(zz.cy != null ? zz.cy : f.y + bias, L.camTop + h / 2, L.camBottom - h / 2);
-      c.save(); c.beginPath(); c.rect(0, L.camTop, 1080, bandH); c.clip();
-      c.drawImage(vid, (cx - w / 2) * k, (cy - h / 2) * k, w * k, h * k, 0, L.camTop, 1080, bandH);
-      c.restore();
+      const f = faceAt(t), w = 1080 / zz.z, h = camH / zz.z;
+      const bias = L.zoomBiasY == null ? -45 : L.zoomBiasY;
+      const cx = clamp(zz.cx != null ? zz.cx : f.x, w / 2, 1080 - w / 2), cy = clamp(zz.cy != null ? zz.cy : f.y + bias, B.cam.sy + h / 2, B.cam.sy + camH - h / 2);
+      sx = cx - w / 2; sy = cy - h / 2; sw = w; sh = h;
+    }
+    if (zz.z > 1.001 || B.gameTop || B.frame.on) {
+      c.save(); c.beginPath(); c.rect(0, B.cam.dy, 1080, camH); c.clip();
+      c.drawImage(vid, sx * k, sy * k, sw * k, sh * k, 0, B.cam.dy, 1080, camH); c.restore();
+    }
+    // gameplay (en marco redondeado si esta activo)
+    if (B.frame.on || B.gameTop) {
+      const fr = B.frame, ar = fr.w / fr.h; let gw = 1080, gh = gw / ar; if (gh > B.game.sh) { gh = B.game.sh; gw = gh * ar; }
+      const gx = (1080 - gw) / 2, gy = B.game.sy + (B.game.sh - gh) / 2;
+      c.save(); roundRect(c, fr.x, fr.y, fr.w, fr.h, fr.r); c.clip();
+      c.drawImage(vid, gx * k, gy * k, gw * k, gh * k, fr.x, fr.y, fr.w, fr.h); c.restore();
     }
     c.filter = 'none';
   }
-  for (const card of P.cards) if (t >= card.start && t < card.end) drawCard(c, card, t);
+  if (B.frame.on) for (const card of P.cards) if (card.kind === 'panel' && t >= card.start && t < card.end) drawPanel(c, card, t, B.frame);
+  if (B.frame.on) {
+    const fr = B.frame, f = L.frame || {};
+    c.save(); roundRect(c, fr.x, fr.y, fr.w, fr.h, fr.r);
+    c.shadowColor = hexA(f.color || K.acento, 0.55); c.shadowBlur = 18; c.lineWidth = f.border == null ? 4 : f.border; c.strokeStyle = f.color || K.acento; c.stroke(); c.restore();
+  }
+  for (const card of P.cards) if (card.kind !== 'panel' && t >= card.start && t < card.end) drawCard(c, card, t);
   drawEffects(c, t);
+
   drawSubtitle(c, t);
   if ($('#chkGuides').checked) {
     c.save(); c.fillStyle = 'rgba(224,36,47,.18)'; c.fillRect(0, 0, 1080, 220); c.fillRect(0, 1500, 1080, 420); c.fillRect(960, 220, 120, 1280);
     c.strokeStyle = '#27b39e'; c.lineWidth = 3; c.setLineDash([14, 10]);
-    c.strokeRect(2, L.camTop, 1076, L.camBottom - L.camTop); c.strokeStyle = '#3b6fe0'; c.strokeRect(2, L.gameTop, 1076, L.gameBottom - L.gameTop);
+    c.strokeRect(2, B.cam.dy, 1076, B.cam.sh); c.strokeStyle = '#3b6fe0'; c.strokeRect(2, B.game.dy, 1076, B.game.sh);
     c.fillStyle = '#fff'; c.font = '600 28px Inter, sans-serif'; c.fillText('Zona de botones de TikTok', 20, 1550); c.restore();
   }
   // tiempo
@@ -714,7 +795,7 @@ function toggleOrDelete() {
 }
 function addZoom() { const t = cur(); mutate(() => { const z = { id: uid('z'), start: r3(t), end: r3(Math.min(P.source.duration, t + 1.5)), z: 1.25, label: '' }; P.zooms.push(z); sel = { type: 'zoom', id: z.id }; }); toast('Zoom agregado: ajusta el nivel a la izquierda'); }
 function addEffect() { const t = cur(); mutate(() => { P.effects = P.effects || []; const e = { id: uid('e'), type: 'sfx', start: r3(t), end: r3(Math.min(P.source.duration, t + 0.6)), file: 'editor_media/sfx/whoosh-short.mp3', volume: 0.35 }; P.effects.push(e); sel = { type: 'effect', id: e.id }; }); toast('Efecto agregado: elige el tipo a la izquierda'); }
-function addCard() { const t = cur(); mutate(() => { const k = { id: uid('c'), start: r3(t), end: r3(Math.min(P.source.duration, t + 2.2)), title: 'Texto *clave*', subtitle: '', icon: 'star' }; P.cards.push(k); sel = { type: 'card', id: k.id }; }); toast('Gráfico agregado: escribe el texto a la izquierda'); }
+function addCard() { const t = cur(); mutate(() => { const k = { id: uid('c'), start: r3(t), end: r3(Math.min(P.source.duration, t + 2.2)), kind: P.layout.frame && P.layout.frame.enabled ? 'panel' : 'tarjeta', label: 'ETIQUETA', title: 'Texto *clave*', subtitle: '', icon: 'star' }; P.cards.push(k); sel = { type: 'card', id: k.id }; }); toast('Gráfico agregado: escribe el texto a la izquierda'); }
 function stepFrames(n) {
   if (playing) pause();
   if (view === 'edit') seekSrc(outToSrc(clamp(srcToOut(cur()) + n / FPS, 0, outDur() - 0.001)));
@@ -751,6 +832,7 @@ function renderInspector(soft) {
       `<div class="row">` + field('Acento', `<input type="color" data-k="style.colores.acento" value="${ST().colores.acento}">`) + field('Secundario', `<input type="color" data-k="style.colores.secundario" value="${ST().colores.secundario}">`) + field('Fondo', `<input type="color" data-k="style.colores.fondo" value="${ST().colores.fondo}">`) + `</div>` +
       `<div class="row">` + field('Movimiento', `<select data-k="style.movimiento">${['suave', 'energico', 'cinematico'].map(v => `<option ${v === ST().movimiento ? 'selected' : ''}>${v}</option>`).join('')}</select>`) + field('Caja en la palabra', `<select data-k="style.subtitulos.caja"><option value="1" ${ST().subtitulos.caja ? 'selected' : ''}>sí</option><option value="" ${ST().subtitulos.caja ? '' : 'selected'}>no</option></select>`) + `</div>` +
       `<div class="row">` + field('Cámara en movimiento', `<input type="range" min="0" max="0.12" step="0.005" data-k="camera.drift" value="${(P.camera && P.camera.drift) || 0}">`) + field('Música baja al hablar', `<input type="range" min="0.2" max="1" step="0.05" data-k="music.duck.level" value="${(P.music && P.music.duck && P.music.duck.level) || 1}">`) + `</div>` +
+      `<div class="row">` + field('Orden', `<select data-k="layout.order"><option value="cam-top" ${P.layout.order !== 'game-top' ? 'selected' : ''}>Cámara arriba</option><option value="game-top" ${P.layout.order === 'game-top' ? 'selected' : ''}>Gameplay arriba</option></select>`) + field('Marco del gameplay', `<select data-k="layout.frame.enabled"><option value="1" ${P.layout.frame && P.layout.frame.enabled ? 'selected' : ''}>sí</option><option value="" ${P.layout.frame && P.layout.frame.enabled ? '' : 'selected'}>no</option></select>`) + `</div>` +
       field('Color (filtro)', `<input type="text" data-k="grading.filter" value="${esc((P.grading && P.grading.filter) || '')}" placeholder="contrast(1.06) saturate(1.1)">`) + `</details>` +
       field('Notas para Claude', `<textarea data-k="status.notes" placeholder="Ej.: el zoom de 'gratis' más fuerte, cambia el beat…">${esc(P.status.notes || '')}</textarea>`);
   } else if (sel.type === 'segment') {
@@ -774,7 +856,9 @@ function renderInspector(soft) {
       `<div class="btnrow"><button data-act="play">▶ Ver</button><button data-act="del">🗑 Borrar</button></div>`;
   } else if (sel.type === 'card') {
     $('#inspTitle').textContent = 'Gráfico sobre el gameplay';
-    box.innerHTML = field('Título', `<input type="text" data-k="title" value="${esc(o.title)}">`) +
+    box.innerHTML = field('Tipo', `<select data-k="kind"><option value="panel" ${o.kind === 'panel' ? 'selected' : ''}>Panel (llena el gameplay)</option><option value="tarjeta" ${o.kind !== 'panel' ? 'selected' : ''}>Tarjeta (encima del gameplay)</option></select>`) +
+      (o.kind === 'panel' ? field('Etiqueta pequeña de arriba', `<input type="text" data-k="label" value="${esc(o.label || '')}">`) : '') +
+      field('Título', `<input type="text" data-k="title" value="${esc(o.title)}">`) +
       field('Subtítulo (opcional)', `<input type="text" data-k="subtitle" value="${esc(o.subtitle || '')}">`) +
       `<div class="small">Pon entre *asteriscos* la palabra que va en color: Stand *Huawei*</div>` +
       `<div class="row">` + field('Icono', `<select data-k="icon">${Object.keys(ICONS).map(n => `<option ${n === o.icon ? 'selected' : ''}>${n}</option>`).join('')}${ICONS[o.icon] ? '' : `<option selected>${esc(o.icon || '')}</option>`}</select>`) + field('Color de la barra', `<input type="color" data-k="color" value="${o.color || ST().colores.secundario}">`) + `</div>` +
@@ -809,7 +893,7 @@ $('#inspector').addEventListener('change', e => {
       else if (k.startsWith('sub.')) setPath(P.subtitles, k.slice(4), v);
       else if (k === 'music.duck.level') { P.music.duck = P.music.duck || {}; P.music.duck.level = v; P.music.duck.enabled = v < 1; }
       else if (k.startsWith('music.')) { setPath(P.music, k.slice(6), v); if (k === 'music.file') { mus.src = mediaUrl(v); mus.load(); } }
-      else if (k.startsWith('layout.')) setPath(P.layout, k.slice(7), v);
+      else if (k.startsWith('layout.')) { if (k === 'layout.frame.enabled') v = !!v; setPath(P.layout, k.slice(7), v); }
       else if (k.startsWith('status.')) setPath(P.status, k.slice(7), v);
       else if (k.startsWith('style.')) { P.style = P.style || {}; if (k === 'style.subtitulos.caja') v = !!v; setPath(P.style, k.slice(6), v); }
       else if (k.startsWith('camera.')) { P.camera = P.camera || {}; setPath(P.camera, k.slice(7), v); }
@@ -827,7 +911,7 @@ $('#inspector').addEventListener('input', e => {
   // vista previa en vivo de deslizadores y textos de graficos
   const el = e.target, k = el.dataset.k, o = selectedObj(); if (!k || !P) return;
   if (el.type === 'range') { const n = el.nextElementSibling; if (n && n.classList.contains('small') && k === 'z') n.textContent = '×' + Number(el.value).toFixed(2); }
-  if (o && sel.type === 'card' && (k === 'title' || k === 'subtitle' || k === 'icon')) { o[k] = el.value; drawScreen(); setDirty(true); }
+  if (o && sel.type === 'card' && (k === 'title' || k === 'subtitle' || k === 'icon' || k === 'label')) { o[k] = el.value; drawScreen(); setDirty(true); }
   if (o && sel.type === 'zoom' && k === 'z') { o.z = Number(el.value); drawScreen(); }
   if (o && sel.type === 'effect' && k === 'text') { o.text = el.value; drawScreen(); setDirty(true); }
   if (!o && k === 'music.volume') { mus.volume = Number(el.value); }
@@ -924,7 +1008,7 @@ window.addEventListener('keydown', e => {
 });
 window.addEventListener('beforeunload', e => { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
 window.addEventListener('resize', () => { resizeTl(); drawAll(); });
-if (document.fonts) Promise.all(['800 60px Sora', '700 60px Sora', '700 40px Inter', '800 40px Inter'].map(f => document.fonts.load(f).catch(() => {}))).then(() => drawAll());
+if (document.fonts) Promise.all(['400 60px Anton', '800 60px Sora', '700 60px Sora', '700 40px Inter', '800 40px Inter'].map(f => document.fonts.load(f).catch(() => {}))).then(() => drawAll());
 
 layoutRows(); resizeTl();
 fetch('/api/version').then(r => r.json()).then(j => {
