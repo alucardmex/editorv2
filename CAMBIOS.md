@@ -1,5 +1,10 @@
 # Cambios de Editor V2
 
+## 1.6.0 (2026-11-12)
+- Tarjetas 3D: mas pequenas, entran girando con perspectiva, flotan y salen girando.
+- Particulas al entrar cada tarjeta (se pueden apagar por tarjeta).
+- Las tarjetas pueden llevar imagen: pon tus capturas en F:\edicionesclaude\imagenes y eligelas en el panel izquierdo.
+
 ## 1.5.0 (2026-11-12)
 - Estilo de tus referencias: el gameplay va dentro de un marco con borde y encima salen paneles con etiqueta y titulo grande.
 - Subtitulos sin caja, en Anton, blancos con la palabra que dices en amarillo.

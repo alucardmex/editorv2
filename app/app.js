@@ -385,13 +385,13 @@ function drawSubtitle(c, t) {
 function rng(seed) { let s = 0; for (const ch of String(seed)) s = (s * 31 + ch.charCodeAt(0)) >>> 0; return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; }
 function drawParticles(c, e, t) {
   const st = ST(), K = st.colores, dur = Math.max(0.3, e.end - e.start), p = clamp((t - e.start) / dur, 0, 1);
-  const r = rng(e.id), n = e.count || 70, x0 = e.x != null ? e.x : 540, y0 = e.y != null ? e.y : (P.layout.gameTop + P.layout.gameBottom) / 2;
+  const r = rng(e.id), n = e.count || 70, R0 = e.spread || 0, x0 = e.x != null ? e.x : 540, y0 = e.y != null ? e.y : (P.layout.gameTop + P.layout.gameBottom) / 2;
   const cols = [K.acento, K.secundario, '#FFFFFF'];
   c.save();
   for (let i = 0; i < n; i++) {
-    const ang = r() * Math.PI * 2, sp = 380 + r() * 820, life = 0.55 + r() * 0.45, sz = 6 + r() * 12, col = cols[i % 3], rot0 = r() * 6;
+    const ang = r() * Math.PI * 2, sp = e.spread ? 260 + r() * 520 : 380 + r() * 820, life = 0.55 + r() * 0.45, sz = 6 + r() * 12, col = cols[i % 3], rot0 = r() * 6;
     const q = clamp(p / life, 0, 1); if (q >= 1) continue;
-    const tt = q * dur * life, x = x0 + Math.cos(ang) * sp * tt * (1 - q * 0.35), y = y0 + Math.sin(ang) * sp * tt * (1 - q * 0.35) + 520 * tt * tt;
+    const tt = q * dur * life, x = x0 + Math.cos(ang) * (R0 * 0.9 + sp * tt * (1 - q * 0.35)), y = y0 + Math.sin(ang) * (R0 * 0.45 + sp * tt * (1 - q * 0.35)) + 520 * tt * tt;
     c.globalAlpha = (1 - q) * (q < 0.08 ? q / 0.08 : 1); c.fillStyle = col;
     c.save(); c.translate(x, y); c.rotate(rot0 + q * 8);
     if (i % 2) c.fillRect(-sz / 2, -sz / 4, sz, sz / 2); else { c.beginPath(); c.arc(0, 0, sz / 2.4, 0, Math.PI * 2); c.fill(); }
@@ -492,6 +492,109 @@ function drawPanel(c, card, t, fr) {
   void words; c.restore();
 }
 
+// ---------- tarjetas 3D (nivel 3) ----------
+const imgCache = {};
+function loadImg(p) {
+  if (!p) return null;
+  if (imgCache[p]) return imgCache[p].complete && imgCache[p].naturalWidth ? imgCache[p] : null;
+  const im = new Image(); im.onload = () => drawAll(); im.src = mediaUrl(p); imgCache[p] = im; return null;
+}
+const cardCanvas = document.createElement('canvas');
+function renderCardFace(card, W, H) {
+  const st = ST(), K = st.colores, accent = card.color || K.acento;
+  cardCanvas.width = W; cardCanvas.height = H;
+  const c = cardCanvas.getContext('2d'); c.clearRect(0, 0, W, H);
+  // fondo
+  roundRect(c, 0, 0, W, H, 34); c.save(); c.clip();
+  const g = c.createLinearGradient(0, 0, W, H); g.addColorStop(0, '#16171c'); g.addColorStop(1, K.fondo);
+  c.fillStyle = g; c.fillRect(0, 0, W, H);
+  const rg = c.createRadialGradient(W * 0.9, H * 0.1, 10, W * 0.9, H * 0.1, W * 0.8); rg.addColorStop(0, hexA(K.secundario, 0.22)); rg.addColorStop(1, 'rgba(0,0,0,0)');
+  c.fillStyle = rg; c.fillRect(0, 0, W, H);
+  const img = loadImg(card.image);
+  const hasImg = !!img;
+  const imgW = hasImg ? Math.round(W * 0.42) : 0;
+  if (hasImg) {
+    // imagen a la derecha, recortada para llenar
+    const bx = W - imgW, ar = imgW / H, iar = img.naturalWidth / img.naturalHeight;
+    let sw = img.naturalWidth, sh = img.naturalHeight, sx = 0, sy = 0;
+    if (iar > ar) { sw = sh * ar; sx = (img.naturalWidth - sw) / 2; } else { sh = sw / ar; sy = (img.naturalHeight - sh) / 2; }
+    c.drawImage(img, sx, sy, sw, sh, bx, 0, imgW, H);
+    const fade = c.createLinearGradient(bx, 0, bx + imgW * 0.45, 0); fade.addColorStop(0, '#111216'); fade.addColorStop(1, 'rgba(17,18,22,0)');
+    c.fillStyle = fade; c.fillRect(bx, 0, imgW * 0.45, H);
+  } else if (ICONS[card.icon]) { c.save(); c.globalAlpha = 0.2; drawIcon(c, card.icon, W - H * 0.42, H / 2, H * 0.62, accent); c.restore(); }
+  c.restore();
+  // borde con brillo
+  c.save(); roundRect(c, 2, 2, W - 4, H - 4, 32); c.lineWidth = 4; c.strokeStyle = accent; c.shadowColor = hexA(accent, 0.8); c.shadowBlur = 16; c.stroke(); c.restore();
+  // textos
+  const px = 44, maxW = W - px * 2 - (hasImg ? imgW - 20 : H * 0.5);
+  c.textAlign = 'left'; c.textBaseline = 'top';
+  c.font = fontB(st, 24, 800); c.fillStyle = hexA(K.texto, 0.62);
+  c.fillText((card.label || '').toUpperCase().split('').join(' '), px, 34);
+  c.fillStyle = accent; c.fillRect(px, 70, 56, 5);
+  const ps = parts(card.title), tf = s => `400 ${s}px "Anton", Impact, "Arial Narrow", sans-serif`;
+  let lines = [ps]; c.font = tf(110);
+  if (partsWidth(c, ps, true) > maxW) {
+    const flat = []; ps.forEach(p => p.s.split(/(\s+)/).forEach(w => { if (w) flat.push({ s: w, acc: p.acc }); }));
+    let best = null;
+    for (let i = 1; i < flat.length; i++) { const l1 = flat.slice(0, i), l2 = flat.slice(i); const w = Math.max(partsWidth(c, l1, true), partsWidth(c, l2, true)); if (!best || w < best.w) best = { w, l: [l1, l2] }; }
+    if (best) lines = best.l.map(l => { while (l.length && !l[0].s.trim()) l.shift(); while (l.length && !l[l.length - 1].s.trim()) l.pop(); return l; });
+  }
+  let size = lines.length > 1 ? 96 : 110;
+  c.font = tf(size); while (Math.max(...lines.map(l => partsWidth(c, l, true))) > maxW && size > 40) { size -= 4; c.font = tf(size); }
+  const hasSub = !!(card.subtitle && card.subtitle.trim());
+  const blockH = lines.length * size * 1.02 + (hasSub ? 50 : 0);
+  let y = 86 + (H - 86 - 30 - blockH) / 2;
+  for (const l of lines) { drawParts(c, l, px, y, K.texto, accent, true); y += size * 1.02; }
+  if (hasSub) { c.font = fontB(st, 34, 800); c.fillStyle = hexA(K.texto, 0.85); c.fillText(card.subtitle.toUpperCase(), px, y + 8); }
+  return cardCanvas;
+}
+// dibuja una imagen girada en Y con perspectiva real (por columnas)
+function drawPerspective(c, src, cx, cy, W, H, angY, angX) {
+  const f = 1500, cols = 90, ca = Math.cos(angY), sa = Math.sin(angY);
+  const sxStep = src.width / cols;
+  const pts = [];
+  for (let i = 0; i <= cols; i++) { const u = i / cols - 0.5, x3 = u * W, z = x3 * sa, s = f / (f + z); pts.push({ x: cx + x3 * ca * s, s }); }
+  for (let i = 0; i < cols; i++) {
+    const p0 = pts[i], p1 = pts[i + 1], s = (p0.s + p1.s) / 2, h = H * s, x = p0.x, w = p1.x - p0.x;
+    const tilt = Math.sin(angX || 0) * (i / cols - 0.5) * H * 0.2;
+    if (w > 0) c.drawImage(src, i * sxStep, 0, sxStep + 0.6, src.height, x, cy - h / 2 + tilt, w + 0.6, h);
+  }
+  // sombreado segun el angulo
+  const shade = Math.min(0.45, Math.abs(sa) * 0.6);
+  if (shade > 0.01) {
+    c.save(); c.globalAlpha = shade; c.beginPath();
+    c.moveTo(pts[0].x, cy - H * pts[0].s / 2); c.lineTo(pts[cols].x, cy - H * pts[cols].s / 2); c.lineTo(pts[cols].x, cy + H * pts[cols].s / 2); c.lineTo(pts[0].x, cy + H * pts[0].s / 2); c.closePath();
+    const lg = c.createLinearGradient(pts[0].x, 0, pts[cols].x, 0);
+    if (sa > 0) { lg.addColorStop(0, 'rgba(0,0,0,0)'); lg.addColorStop(1, '#000'); } else { lg.addColorStop(0, '#000'); lg.addColorStop(1, 'rgba(0,0,0,0)'); }
+    c.fillStyle = lg; c.fill(); c.restore();
+  }
+}
+function drawCard3D(c, card, t, fr) {
+  const st = ST(), K = st.colores;
+  const sc = card.scale || 0.78;
+  const W = Math.round(fr.w * sc), H = Math.round(Math.min(fr.h * 0.86, W * 0.56));
+  const inP = clamp((t - card.start) / 0.5, 0, 1), outP = clamp((card.end - t) / 0.28, 0, 1);
+  if (inP <= 0 || outP <= 0) return;
+  const e = 1 - Math.pow(1 - inP, 3), o = 1 - outP;
+  const side = card.side === 'right' ? -1 : 1;
+  // entra girando desde un lado, se queda flotando con un leve vaiven, sale girando al otro
+  const idle = Math.sin((t - card.start) * 1.6) * 0.05;
+  const angY = side * ((1 - e) * 1.05 - 0.12) + idle - o * side * 0.9;
+  const angX = Math.sin((t - card.start) * 1.1) * 0.15;
+  const face = renderCardFace(card, W, H);
+  const cx = fr.x + fr.w / 2 + (card.dx || 0) + (1 - e) * side * -120, cy = fr.y + fr.h / 2 + (card.dy || 0) + Math.sin((t - card.start) * 2) * 6;
+  c.save(); c.globalAlpha = Math.min(1, inP * 2.5) * outP;
+  // sombra
+  c.save(); c.fillStyle = 'rgba(0,0,0,0.45)'; c.filter = 'blur(18px)'; c.fillRect(cx - W * 0.4, cy + H * 0.38, W * 0.8, 30); c.restore();
+  drawPerspective(c, face, cx, cy, W * (0.92 + 0.08 * e), H * (0.92 + 0.08 * e), angY, angX);
+  c.restore();
+  // particulas de entrada alrededor de la tarjeta
+  if (card.particles !== false) {
+    const pe = { id: card.id, start: card.start, end: card.start + 1.1, x: cx, y: cy, count: 36, spread: W / 2 };
+    if (t < pe.end) drawParticles(c, pe, t);
+  }
+}
+
 function drawScreen() {
   if (!P) return;
   const c = sctx, k = vid.videoWidth ? vid.videoWidth / 1080 : 0.5, t = cur(), L = P.layout, st = ST(), K = st.colores;
@@ -526,12 +629,14 @@ function drawScreen() {
     c.filter = 'none';
   }
   if (B.frame.on) for (const card of P.cards) if (card.kind === 'panel' && t >= card.start && t < card.end) drawPanel(c, card, t, B.frame);
+  const fr3 = B.frame.on ? B.frame : { x: 0, y: B.game.dy, w: 1080, h: B.game.sh };
+  for (const card of P.cards) if (card.kind === 'card3d' && t >= card.start && t < card.end) drawCard3D(c, card, t, fr3);
   if (B.frame.on) {
     const fr = B.frame, f = L.frame || {};
     c.save(); roundRect(c, fr.x, fr.y, fr.w, fr.h, fr.r);
     c.shadowColor = hexA(f.color || K.acento, 0.55); c.shadowBlur = 18; c.lineWidth = f.border == null ? 4 : f.border; c.strokeStyle = f.color || K.acento; c.stroke(); c.restore();
   }
-  for (const card of P.cards) if (card.kind !== 'panel' && t >= card.start && t < card.end) drawCard(c, card, t);
+  for (const card of P.cards) if (card.kind !== 'panel' && card.kind !== 'card3d' && t >= card.start && t < card.end) drawCard(c, card, t);
   drawEffects(c, t);
 
   drawSubtitle(c, t);
@@ -856,8 +961,11 @@ function renderInspector(soft) {
       `<div class="btnrow"><button data-act="play">▶ Ver</button><button data-act="del">🗑 Borrar</button></div>`;
   } else if (sel.type === 'card') {
     $('#inspTitle').textContent = 'Gráfico sobre el gameplay';
-    box.innerHTML = field('Tipo', `<select data-k="kind"><option value="panel" ${o.kind === 'panel' ? 'selected' : ''}>Panel (llena el gameplay)</option><option value="tarjeta" ${o.kind !== 'panel' ? 'selected' : ''}>Tarjeta (encima del gameplay)</option></select>`) +
-      (o.kind === 'panel' ? field('Etiqueta pequeña de arriba', `<input type="text" data-k="label" value="${esc(o.label || '')}">`) : '') +
+    box.innerHTML = field('Tipo', `<select data-k="kind"><option value="card3d" ${o.kind === 'card3d' ? 'selected' : ''}>Tarjeta 3D (gira y flota)</option><option value="panel" ${o.kind === 'panel' ? 'selected' : ''}>Panel (llena el gameplay)</option><option value="tarjeta" ${!o.kind || o.kind === 'tarjeta' ? 'selected' : ''}>Tarjeta plana</option></select>`) +
+      (o.kind === 'card3d' ? `<div class="row">` + field('Tamaño', `<input type="range" min="0.5" max="0.95" step="0.01" data-k="scale" value="${o.scale || 0.78}">`) + field('Entra por', `<select data-k="side"><option value="left" ${o.side !== 'right' ? 'selected' : ''}>izquierda</option><option value="right" ${o.side === 'right' ? 'selected' : ''}>derecha</option></select>`) + `</div>` +
+        field('Imagen (opcional)', `<select data-k="image"><option value="">(sin imagen: usa el icono)</option>${Array.from(new Set([o.image, ...mediaList.filter(f => /\.(png|jpe?g|webp)$/i.test(f))].filter(Boolean))).map(f => `<option ${f === o.image ? 'selected' : ''}>${esc(f)}</option>`).join('')}</select>`) +
+        `<label class="chk"><input type="checkbox" data-k="particles" ${o.particles !== false ? 'checked' : ''}> Partículas al entrar</label>` : '') +
+      (o.kind === 'panel' || o.kind === 'card3d' ? field('Etiqueta pequeña de arriba', `<input type="text" data-k="label" value="${esc(o.label || '')}">`) : '') +
       field('Título', `<input type="text" data-k="title" value="${esc(o.title)}">`) +
       field('Subtítulo (opcional)', `<input type="text" data-k="subtitle" value="${esc(o.subtitle || '')}">`) +
       `<div class="small">Pon entre *asteriscos* la palabra que va en color: Stand *Huawei*</div>` +

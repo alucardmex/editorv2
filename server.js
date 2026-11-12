@@ -17,7 +17,7 @@ const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.json': 'application/json; charset=utf-8', '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.m4a': 'audio/mp4',
   '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
-  '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.webm': 'video/webm', '.woff2': 'font/woff2'
+  '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.webm': 'video/webm', '.woff2': 'font/woff2', '.webp': 'image/webp'
 };
 
 function inside(base, p) {
@@ -131,10 +131,10 @@ const server = http.createServer((req, res) => {
   if (p === '/api/media') {
     // lista audio/video de material/ para elegir musica u otros archivos
     const out = [];
-    for (const dir of ['material', 'musica', 'editor_media', 'editor_media/sfx']) {
+    for (const dir of ['material', 'musica', 'imagenes', 'editor_media', 'editor_media/sfx', 'editor_media/pubg']) {
       const d = path.join(ROOT, dir);
       if (!fs.existsSync(d)) continue;
-      for (const f of fs.readdirSync(d)) if (/\.(mp4|mov|m4a|mp3|wav)$/i.test(f)) out.push(dir + '/' + f);
+      for (const f of fs.readdirSync(d)) if (/\.(mp4|mov|m4a|mp3|wav|png|jpe?g|webp)$/i.test(f)) out.push(dir + '/' + f);
     }
     return json(res, 200, out);
   }
