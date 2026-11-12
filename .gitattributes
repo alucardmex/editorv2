@@ -5,3 +5,6 @@
 *.html text eol=lf
 *.css text eol=lf
 *.md text eol=lf
+*.vbs text eol=crlf
+*.ico binary
+*.png binary

@@ -731,7 +731,27 @@ window.addEventListener('resize', () => { resizeTl(); drawAll(); });
 if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => drawAll());
 
 layoutRows(); resizeTl();
-fetch('/api/version').then(r => r.json()).then(j => { $('#topbar .brand').innerHTML = 'EDITOR <b>V2</b> <span class="ver">' + j.version + '</span>'; }).catch(() => {});
+fetch('/api/version').then(r => r.json()).then(j => {
+  $('#topbar .brand').innerHTML = 'EDITOR <b>V2</b> <span class="ver">' + j.version + '</span>';
+  // novedades despues de una actualizacion (una sola vez por version)
+  let seen = null; try { seen = localStorage.getItem('editorv2.seen'); } catch (e) {}
+  if (j.update && j.update.to === j.version && seen !== j.version) {
+    $('#newsTitle').textContent = 'Editor V2 se actualizó a la versión ' + j.version;
+    $('#newsBody').innerHTML = esc(j.update.notes || '').replace(/^## .*$/m, '').trim().split(/\r?\n/).filter(Boolean).map(l => '<div>' + l.replace(/^- /, '• ') + '</div>').join('');
+    $('#news').classList.remove('hidden');
+  }
+  try { localStorage.setItem('editorv2.seen', j.version); } catch (e) {}
+}).catch(() => {});
+// la ventana avisa que sigue abierta; al cerrarla el editor se apaga solo
+let offline = false;
+function ping() {
+  fetch('/api/ping', { cache: 'no-store' }).then(() => { if (offline) { offline = false; $('#offline').classList.add('hidden'); } })
+    .catch(() => { offline = true; $('#offline').classList.remove('hidden'); });
+}
+ping(); setInterval(ping, 4000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) ping(); });
+window.addEventListener('pagehide', () => { try { navigator.sendBeacon('/api/bye'); } catch (e) {} });
+$('#newsClose').onclick = () => $('#news').classList.add('hidden');
 loadProjects().catch(err => { $('#loading').textContent = 'No se pudo conectar con el editor: ' + err.message; });
 requestAnimationFrame(tick);
 window.__editor = { get P() { return P; }, seekSrc, play, pause, setView, get view() { return view; } };

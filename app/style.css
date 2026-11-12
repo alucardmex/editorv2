@@ -79,3 +79,6 @@ input[type=color]{width:42px;height:28px;border:1px solid var(--line);border-rad
 #toast{position:fixed;left:50%;top:58px;transform:translateX(-50%);background:#222833;border:1px solid var(--line);padding:8px 14px;border-radius:8px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:30}
 #toast.show{opacity:1}
 #topbar .brand .ver{font:600 10px Inter,sans-serif;color:var(--dim);letter-spacing:0;margin-left:4px}
+.news{margin:6px 0 14px;line-height:1.6;color:#d7dbe4}
+#offline{position:fixed;left:0;right:0;top:46px;background:#7a1218;color:#fff;text-align:center;padding:8px;z-index:25}
+#offline.hidden{display:none}

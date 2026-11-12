@@ -5,7 +5,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const url = require('url');
-const { exec, spawn } = require('child_process');
+const { openWindow, fixShortcuts } = require('./window');
 
 const APP_DIR = path.join(__dirname, 'app');
 const ROOT = path.resolve(__dirname, '..');
@@ -68,9 +68,13 @@ const server = http.createServer((req, res) => {
     return sendFile(req, res, f);
   }
   if (p === '/api/version') {
-    let v = '?'; try { v = fs.readFileSync(path.join(__dirname, 'VERSION'), 'utf8').trim(); } catch (e) {}
-    return json(res, 200, { version: v });
+    let v = '?', upd = null;
+    try { v = fs.readFileSync(path.join(__dirname, 'VERSION'), 'utf8').trim(); } catch (e) {}
+    try { upd = JSON.parse(fs.readFileSync(path.join(__dirname, '.ultima-actualizacion.json'), 'utf8')); } catch (e) {}
+    return json(res, 200, { app: 'editorv2', version: v, update: upd });
   }
+  if (p === '/api/ping') { lastPing = Date.now(); hadPing = true; return json(res, 200, { ok: true }); }
+  if (p === '/api/bye') { lastBye = Date.now(); return json(res, 200, { ok: true }); }
   if (p === '/api/projects') {
     fs.mkdirSync(PROJ_DIR, { recursive: true });
     const list = fs.readdirSync(PROJ_DIR).filter(f => f.endsWith('.json')).map(f => {
@@ -125,26 +129,16 @@ const server = http.createServer((req, res) => {
   res.writeHead(404); res.end('No encontrado');
 });
 
-// Abre el editor en su propia ventana (modo app de Edge o Chrome); si no hay, en el navegador normal.
-function openWindow(link) {
-  if (process.platform === 'win32') {
-    const env = process.env, cands = [
-      path.join(env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)', 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
-      path.join(env.ProgramFiles || 'C:\\Program Files', 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
-      path.join(env.LOCALAPPDATA || '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
-      path.join(env.ProgramFiles || 'C:\\Program Files', 'Google', 'Chrome', 'Application', 'chrome.exe'),
-    ];
-    const exe = cands.find(f => { try { return fs.statSync(f).isFile(); } catch (e) { return false; } });
-    if (exe) {
-      try {
-        spawn(exe, ['--app=' + link, '--window-size=1600,950', '--autoplay-policy=no-user-gesture-required'], { detached: true, stdio: 'ignore' }).unref();
-        return;
-      } catch (e) {}
-    }
-    return exec(`start "" "${link}"`, () => {});
-  }
-  exec(process.platform === 'darwin' ? `open "${link}"` : `xdg-open "${link}"`, () => {});
-}
+// Se apaga solo cuando cierras la ventana del editor (la ventana avisa que sigue abierta cada 4 s;
+// minimizada el navegador puede espaciar los avisos hasta 1 por minuto, por eso el margen de 150 s).
+let lastPing = 0, lastBye = 0, hadPing = false;
+const BOOT = Date.now();
+if (!process.env.EDITOR_KEEP_ALIVE) setInterval(() => {
+  const now = Date.now();
+  if (lastBye > lastPing && now - lastBye > 8000) { console.log('Ventana cerrada: apago el editor.'); process.exit(0); }
+  if (hadPing && now - lastPing > 150000) { console.log('La ventana dejo de responder: apago el editor.'); process.exit(0); }
+  if (!hadPing && now - BOOT > 180000) { console.log('No se abrio ninguna ventana: apago el editor.'); process.exit(0); }
+}, 3000).unref();
 
 function start() {
   server.once('error', e => {
@@ -153,12 +147,9 @@ function start() {
   });
   server.listen(PORT, '127.0.0.1', () => {
     const link = `http://localhost:${PORT}/`;
-    console.log('');
-    console.log('  Editor V2 abierto en ' + link);
-    console.log('  Carpeta de trabajo: ' + ROOT);
-    console.log('  No cierres esta ventana mientras editas.');
-    console.log('');
-    if (!process.env.EDITOR_NO_BROWSER) openWindow(link);
+    console.log('Editor V2 abierto en ' + link + '  (carpeta de trabajo: ' + ROOT + ')');
+    openWindow(link);
+    setTimeout(() => fixShortcuts(__dirname), 1500);
   });
 }
 start();

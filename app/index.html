@@ -6,6 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+<link rel="icon" href="/app/icono.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/app/style.css">
 </head>
 <body>
@@ -98,6 +99,14 @@
     <button id="helpClose" class="primary">Entendido</button>
   </div>
 </div>
+<div id="news" class="modal hidden">
+  <div class="box">
+    <h2 id="newsTitle">Novedades</h2>
+    <div id="newsBody" class="news"></div>
+    <button id="newsClose" class="primary">Ok</button>
+  </div>
+</div>
+<div id="offline" class="hidden">Se perdió la conexión con el editor. Ciérralo y vuelve a abrir <b>Editor V2</b>.</div>
 <div id="toast"></div>
 
 <video id="vid" preload="auto" playsinline crossorigin="anonymous" style="display:none"></video>

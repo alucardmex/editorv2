@@ -10,9 +10,10 @@ Necesita **Node.js** y **Git** (los instala `Instalar-HyperFrames.bat`).
 
 1. Copia esta carpeta como `F:\edicionesclaude\editor` (o deja que Claude la ponga ahi).
 2. Doble clic en `Instalar-Editor.bat`: crea el acceso **Editor V2** en el escritorio y en el menu Inicio.
-3. Abre **Editor V2**.
+3. Abre **Editor V2**: abre en su propia ventana, sin consola, y se apaga solo al cerrarla.
 
 Cada vez que lo abres busca actualizaciones en este repositorio y se pone al dia solo.
+Si algo falla, `Abrir-Editor-con-consola.bat` muestra los mensajes (tambien quedan en `editor.log`).
 
 ## Carpetas
 
