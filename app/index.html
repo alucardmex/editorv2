@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Editor V2</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/app/style.css">
+</head>
+<body>
+<header id="topbar">
+  <div class="brand">EDITOR <b>V2</b></div>
+  <select id="projSel" title="Proyecto"></select>
+  <div class="sep"></div>
+  <button id="btnUndo" title="Deshacer (Ctrl+Z)">↶</button>
+  <button id="btnRedo" title="Rehacer (Ctrl+Y)">↷</button>
+  <div class="sep"></div>
+  <div class="seg" id="viewMode">
+    <button data-v="edit" class="on" title="Ver el video ya cortado (V)">Editado</button>
+    <button data-v="orig" title="Ver el video original con los cortes marcados (V)">Original</button>
+  </div>
+  <div class="sep"></div>
+  <span class="stat" id="statDur">—</span>
+  <span class="stat" id="statCuts">—</span>
+  <div class="grow"></div>
+  <span id="dirty" class="dirty" title="Hay cambios sin guardar"></span>
+  <button id="btnSave" class="primary" title="Guardar (Ctrl+S)">Guardar</button>
+  <button id="btnApprove" title="Marca el proyecto como listo; Claude lo renderiza desde aquí">Listo para renderizar</button>
+  <button id="btnHelp" title="Atajos de teclado">?</button>
+</header>
+
+<main id="main">
+  <aside id="left">
+    <section class="panel">
+      <h3 id="inspTitle">Proyecto</h3>
+      <div id="inspector"></div>
+    </section>
+    <section class="panel grow">
+      <h3>Avisos <span id="warnCount" class="badge"></span></h3>
+      <div id="warnings"></div>
+    </section>
+  </aside>
+
+  <section id="viewer">
+    <div id="stage">
+      <canvas id="screen" width="540" height="960"></canvas>
+      <div id="loading">Cargando video…</div>
+    </div>
+    <div id="transport">
+      <button id="btnStart" title="Inicio (Home)">⏮</button>
+      <button id="btnBack" title="Un cuadro atrás (←)">◀︎</button>
+      <button id="btnPlay" class="play" title="Reproducir / pausar (Espacio)">▶</button>
+      <button id="btnFwd" title="Un cuadro adelante (→)">▶︎</button>
+      <button id="btnEnd" title="Final (End)">⏭</button>
+      <span class="tc" id="tcOut">00:00.00</span>
+      <span class="tc dim" id="tcSrc" title="Tiempo en el video original">orig 00:00.00</span>
+      <label class="chk" title="Música de fondo en la vista previa (M)"><input type="checkbox" id="chkMusic" checked> Música</label>
+      <label class="chk" title="Ver guías: zonas de TikTok y bandas"><input type="checkbox" id="chkGuides"> Guías</label>
+    </div>
+  </section>
+</main>
+
+<footer id="timelineWrap">
+  <div id="tlTools">
+    <button id="btnSplit" title="Dividir el clip en el cursor (S)">✂ Dividir</button>
+    <button id="btnToggle" title="Quitar / restaurar el clip elegido (Supr)">⊘ Quitar/Restaurar</button>
+    <button id="btnAddZoom" title="Agregar zoom en el cursor (Z)">＋ Zoom</button>
+    <button id="btnAddCard" title="Agregar gráfico en el cursor (C)">＋ Gráfico</button>
+    <div class="grow"></div>
+    <span class="hint">Rueda: desplazar · Ctrl+rueda: acercar · Arrastra bordes para recortar</span>
+    <button id="btnZoomOut" title="Alejar línea de tiempo (-)">−</button>
+    <button id="btnZoomFit" title="Ajustar todo">Ajustar</button>
+    <button id="btnZoomIn" title="Acercar línea de tiempo (+)">+</button>
+  </div>
+  <div id="tlBody">
+    <div id="tlHeads"></div>
+    <div id="tlCanvasWrap"><canvas id="tl"></canvas></div>
+  </div>
+</footer>
+
+<div id="help" class="modal hidden">
+  <div class="box">
+    <h2>Atajos</h2>
+    <table>
+      <tr><td>Espacio</td><td>Reproducir / pausar</td></tr>
+      <tr><td>← / →</td><td>Un cuadro (Shift: 1 segundo)</td></tr>
+      <tr><td>S</td><td>Dividir el clip en el cursor</td></tr>
+      <tr><td>Supr / Retroceso</td><td>Quitar/restaurar clip · borrar zoom o gráfico</td></tr>
+      <tr><td>Z / C</td><td>Agregar zoom / gráfico en el cursor</td></tr>
+      <tr><td>V</td><td>Cambiar vista Editado / Original</td></tr>
+      <tr><td>M</td><td>Música encendida / apagada</td></tr>
+      <tr><td>Ctrl+Z / Ctrl+Y</td><td>Deshacer / rehacer</td></tr>
+      <tr><td>Ctrl+S</td><td>Guardar</td></tr>
+      <tr><td>Doble clic en palabra</td><td>Corregir el texto del subtítulo</td></tr>
+    </table>
+    <p>Los cambios se guardan en <b>proyectos\&lt;nombre&gt;.json</b>. Cada guardado deja una copia en <b>proyectos\.historial</b>. Cuando esté como te gusta, pulsa <b>Listo para renderizar</b> y dile a Claude "renderiza".</p>
+    <button id="helpClose" class="primary">Entendido</button>
+  </div>
+</div>
+<div id="toast"></div>
+
+<video id="vid" preload="auto" playsinline crossorigin="anonymous" style="display:none"></video>
+<audio id="mus" preload="auto" style="display:none"></audio>
+<script src="/app/app.js"></script>
+</body>
+</html>
