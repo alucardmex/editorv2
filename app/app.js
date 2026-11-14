@@ -1000,7 +1000,9 @@ function renderInspector(soft) {
     $('#inspTitle').textContent = 'Gráfico sobre el gameplay';
     box.innerHTML = field('Tipo', `<select data-k="kind"><option value="card3d" ${o.kind === 'card3d' ? 'selected' : ''}>Tarjeta 3D (gira y flota)</option><option value="comentario" ${o.kind === 'comentario' ? 'selected' : ''}>Comentario (gancho)</option><option value="panel" ${o.kind === 'panel' ? 'selected' : ''}>Panel (llena el gameplay)</option><option value="tarjeta" ${!o.kind || o.kind === 'tarjeta' ? 'selected' : ''}>Tarjeta plana</option></select>`) +
       (o.kind === 'card3d' ? `<div class="row">` + field('Tamaño', `<input type="range" min="0.5" max="0.95" step="0.01" data-k="scale" value="${o.scale || 0.78}">`) + field('Entra por', `<select data-k="side"><option value="left" ${o.side !== 'right' ? 'selected' : ''}>izquierda</option><option value="right" ${o.side === 'right' ? 'selected' : ''}>derecha</option></select>`) + `</div>` +
-        field('Imagen (opcional)', `<select data-k="image"><option value="">(sin imagen: usa el icono)</option>${Array.from(new Set([o.image, ...mediaList.filter(f => /\.(png|jpe?g|webp)$/i.test(f))].filter(Boolean))).map(f => `<option ${f === o.image ? 'selected' : ''}>${esc(f)}</option>`).join('')}</select>`) +
+        field('Imagen (opcional)', `<select data-k="image"><option value="">(sin imagen: usa el icono)</option>${Array.from(new Set([o.image, ...mediaList.filter(f => /\.(png|jpe?g|webp|gif)$/i.test(f))].filter(Boolean))).map(f => `<option ${f === o.image ? 'selected' : ''}>${esc(f)}</option>`).join('')}</select>
+          <div class="imgpick" data-drop="1">${o.image ? `<img src="${mediaUrl(o.image)}" alt="">` : '<span class="small">Sin imagen</span>'}
+            <div><button data-act="pickimg">📁 Buscar en mi PC…</button>${o.image ? ' <button data-act="noimg">Quitar</button>' : ''}<div class="small">o arrastra una imagen aquí</div></div></div>`) +
         `<div class="row">` + field('Diseño', `<select data-k="style"><option value="" ${o.style !== 'imagen' ? 'selected' : ''}>Texto + imagen</option><option value="imagen" ${o.style === 'imagen' ? 'selected' : ''}>Imagen completa</option></select>`) + field('Contador (ej. 01/06)', `<input type="text" data-k="counter" value="${esc(o.counter || '')}">`) + `</div>` +
         `<div class="row">` + field('Mover x', num('dx', o.dx || 0, 2)) + field('Mover y', num('dy', o.dy || 0, 2)) + `</div>` +
         `<label class="chk"><input type="checkbox" data-k="particles" ${o.particles !== false ? 'checked' : ''}> Partículas al entrar</label>` : '') +
@@ -1066,11 +1068,36 @@ $('#inspector').addEventListener('input', e => {
 });
 $('#inspector').addEventListener('click', e => {
   const a = e.target.dataset.act; if (!a) return; const o = selectedObj();
+  if (a === 'pickimg') { imgFile.click(); return; }
+  if (a === 'noimg' && o) { mutate(() => { delete o.image; }); return; }
   if (a === 'sound' && o && o.file) { try { const au = new Audio(mediaUrl(o.file)); au.volume = clamp(o.volume == null ? 0.35 : o.volume, 0, 1); au.play(); } catch (err) {} return; }
   if (a === 'toggle' || a === 'del') toggleOrDelete();
   else if (a === 'split') splitAtCursor();
   else if (a === 'play' && o) { seekSrc(o.start); play(); const stopAt = o.end; const chk = () => { if (!playing) return; if (cur() >= stopAt - 0.02) pause(); else requestAnimationFrame(chk); }; requestAnimationFrame(chk); }
 });
+
+// ---------- imagenes desde la PC ----------
+async function uploadImage(file) {
+  const o = selectedObj(); if (!o || sel.type !== 'card') return toast('Primero elige un gráfico en la línea de tiempo');
+  if (!/^image\//.test(file.type)) return toast('Ese archivo no es una imagen');
+  toast('Subiendo ' + file.name + '…', 4000);
+  try {
+    const r = await fetch('/api/upload?name=' + encodeURIComponent(file.name), { method: 'POST', body: file });
+    const j = await r.json();
+    if (!r.ok || !j.ok) return toast(j.error || 'No se pudo subir la imagen', 3500);
+    try { mediaList = await (await fetch('/api/media')).json(); } catch (e) {}
+    mutate(() => { o.image = j.path; if (o.kind !== 'card3d' && o.kind !== 'panel') o.kind = 'card3d'; });
+    toast('Imagen agregada ✓ (guardada en imagenes)');
+  } catch (e) { toast('No se pudo subir: ' + e.message, 3500); }
+}
+const imgFile = document.createElement('input'); imgFile.type = 'file'; imgFile.accept = 'image/*'; imgFile.style.display = 'none'; document.body.appendChild(imgFile);
+imgFile.addEventListener('change', () => { if (imgFile.files[0]) uploadImage(imgFile.files[0]); imgFile.value = ''; });
+['dragover', 'dragleave', 'drop'].forEach(ev => $('#inspector').addEventListener(ev, e => {
+  if (!e.dataTransfer || !Array.from(e.dataTransfer.types || []).includes('Files')) return;
+  e.preventDefault();
+  const zone = $('#inspector .imgpick'); if (zone) zone.classList.toggle('over', ev === 'dragover');
+  if (ev === 'drop' && e.dataTransfer.files[0]) uploadImage(e.dataTransfer.files[0]);
+}));
 
 // ---------- avisos ----------
 function renderWarnings() {

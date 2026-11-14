@@ -91,3 +91,6 @@ input[type=color]{width:42px;height:28px;border:1px solid var(--line);border-rad
 .upd.ok{color:#5fd38a}
 .upd.new{background:#1f5fd1;border-color:#1f5fd1;color:#fff;font-weight:700}
 .upd.busy{color:var(--yellow)}
+.imgpick{display:flex;gap:10px;align-items:center;margin-top:6px;padding:8px;border:1px dashed #3a3f4c;border-radius:8px}
+.imgpick.over{border-color:var(--yellow);background:#2a2410}
+.imgpick img{width:96px;height:64px;object-fit:cover;border-radius:6px;border:1px solid #3a3f4c}

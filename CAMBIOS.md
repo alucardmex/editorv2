@@ -1,5 +1,11 @@
 # Cambios de Editor V2
 
+## 1.9.0 (2026-11-13)
+- Boton "Buscar en mi PC…" en la imagen de los graficos: eliges cualquier imagen de tu computadora y se pone en la tarjeta.
+- Tambien puedes arrastrar una imagen al recuadro.
+- Las imagenes se copian a F:\edicionesclaude\imagenes (nunca se sobrescribe una que ya exista).
+- Vista previa de la imagen elegida.
+
 ## 1.8.0 (2026-11-13)
 - Nuevo grafico "Comentario": tarjeta tipo notificacion o comentario para el gancho y el cierre.
 - Tarjetas 3D con diseno "Imagen completa" y contador (01/03), como en la referencia 2.

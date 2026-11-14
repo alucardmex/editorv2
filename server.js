@@ -86,6 +86,23 @@ const server = http.createServer((req, res) => {
     return;
   }
   if (p === '/api/recursos') { const r = require('./recursos'); return json(res, 200, { state: r.state, files: r.list() }); }
+  if (p === '/api/upload' && req.method === 'POST') {
+    // sube una imagen elegida en el editor a la carpeta imagenes\ (sin sobrescribir)
+    let name = String(u.query.name || 'imagen').replace(/[\\/:*?"<>|]+/g, '_').replace(/^\.+/, '').slice(0, 120) || 'imagen';
+    if (!/\.(png|jpe?g|webp|gif)$/i.test(name)) return json(res, 400, { error: 'Solo imágenes: png, jpg, webp o gif' });
+    const dir = path.join(ROOT, 'imagenes'); fs.mkdirSync(dir, { recursive: true });
+    let base = name.replace(/\.[^.]+$/, ''), ext = path.extname(name).toLowerCase(), file = path.join(dir, base + ext), n = 2;
+    while (fs.existsSync(file)) file = path.join(dir, `${base} (${n++})${ext}`);
+    const chunks = []; let size = 0, tooBig = false;
+    req.on('data', c => { size += c.length; if (size > 40 * 1024 * 1024) { tooBig = true; req.destroy(); } else chunks.push(c); });
+    req.on('end', () => {
+      if (tooBig) return;
+      try { fs.writeFileSync(file, Buffer.concat(chunks)); json(res, 200, { ok: true, path: 'imagenes/' + path.basename(file) }); }
+      catch (e) { json(res, 500, { error: 'No se pudo guardar: ' + e.message }); }
+    });
+    req.on('close', () => { if (tooBig && !res.headersSent) json(res, 413, { error: 'La imagen pesa más de 40 MB' }); });
+    return;
+  }
   if (p === '/api/ping') { lastPing = Date.now(); hadPing = true; return json(res, 200, { ok: true }); }
   if (p === '/api/bye') { lastBye = Date.now(); return json(res, 200, { ok: true }); }
   if (p === '/api/projects') {
