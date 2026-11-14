@@ -1,5 +1,11 @@
 # Cambios de Editor V2
 
+## 1.8.0 (2026-11-13)
+- Nuevo grafico "Comentario": tarjeta tipo notificacion o comentario para el gancho y el cierre.
+- Tarjetas 3D con diseno "Imagen completa" y contador (01/03), como en la referencia 2.
+- Soporta videos con la pantalla arriba y la camara abajo.
+- Puedes mover cada tarjeta (Mover x / Mover y) para poner dos lado a lado.
+
 ## 1.7.0 (2026-11-12)
 - Recursos: al abrir el editor se descargan solas las imagenes de la lista recursos\descargar.json a la carpeta recursos.
 - Las imagenes de recursos aparecen para elegirlas en las tarjetas 3D.

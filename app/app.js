@@ -434,13 +434,13 @@ function drawEffects(c, t) {
 // bandas de la composicion: de donde sale cada parte del video original y a donde va
 function bands() {
   const L = P.layout, camH = L.camBottom - L.camTop, gameH = L.gameBottom - L.gameTop;
-  const gameTop = L.order === 'game-top';
-  const cam = { sy: L.camTop, sh: camH, dy: gameTop ? L.camTop + gameH : L.camTop };
-  const game = { sy: L.gameTop, sh: gameH, dy: gameTop ? L.camTop : L.camTop + camH };
+  const gameTop = L.order === 'game-top', top0 = Math.min(L.camTop, L.gameTop);
+  const cam = { sy: L.camTop, sh: camH, dy: gameTop ? top0 + gameH : top0 };
+  const game = { sy: L.gameTop, sh: gameH, dy: gameTop ? top0 : top0 + camH };
   const f = L.frame || {}, inset = f.enabled ? (f.inset == null ? 26 : f.inset) : 0;
   const frame = { x: inset, y: game.dy + inset, w: 1080 - inset * 2, h: gameH - inset * 2, r: f.enabled ? (f.radius == null ? 28 : f.radius) : 0, on: !!f.enabled };
   const seam = gameTop ? cam.dy : game.dy;
-  return { cam, game, frame, seam, gameTop, top: L.camTop, bottom: L.camTop + camH + gameH };
+  return { cam, game, frame, seam, gameTop, top: top0, bottom: top0 + camH + gameH };
 }
 function drawPanel(c, card, t, fr) {
   const st = ST(), K = st.colores;
@@ -512,6 +512,22 @@ function renderCardFace(card, W, H) {
   c.fillStyle = rg; c.fillRect(0, 0, W, H);
   const img = loadImg(card.image);
   const hasImg = !!img;
+  if (hasImg && card.style === 'imagen') {
+    // la imagen llena la tarjeta; etiqueta y titulo pequenos abajo, como en la referencia 2
+    const ar = W / H, iar = img.naturalWidth / img.naturalHeight; let sw = img.naturalWidth, sh = img.naturalHeight, sx = 0, sy = 0;
+    if (iar > ar) { sw = sh * ar; sx = (img.naturalWidth - sw) * (card.focusX == null ? 0.5 : card.focusX); } else { sh = sw / ar; sy = (img.naturalHeight - sh) * (card.focusY == null ? 0.5 : card.focusY); }
+    c.drawImage(img, sx, sy, sw, sh, 0, 0, W, H);
+    const gb = c.createLinearGradient(0, H * 0.45, 0, H); gb.addColorStop(0, 'rgba(0,0,0,0)'); gb.addColorStop(1, 'rgba(0,0,0,0.88)'); c.fillStyle = gb; c.fillRect(0, 0, W, H);
+    c.restore();
+    c.save(); roundRect(c, 2, 2, W - 4, H - 4, 32); c.lineWidth = 3; c.strokeStyle = 'rgba(255,255,255,0.85)'; c.stroke(); c.restore();
+    c.textAlign = 'left'; c.textBaseline = 'alphabetic';
+    if (card.label) { c.font = fontB(st, 22, 800); c.fillStyle = hexA(K.texto, 0.7); c.fillText(card.label.toUpperCase().split('').join('\u200A'), 34, H - 92); }
+    const ps2 = parts(card.title), tf2 = s => `400 ${s}px "Anton", Impact, "Arial Narrow", sans-serif`; let s2 = 64; c.font = tf2(s2); while (partsWidth(c, ps2, true) > W - 200 && s2 > 30) { s2 -= 2; c.font = tf2(s2); }
+    drawParts(c, ps2, 34, H - 32, K.texto, accent, true);
+    c.fillStyle = accent; c.fillRect(34, H - 22, 52, 5);
+    if (card.counter) { c.font = tf2(34); c.textAlign = 'right'; c.fillStyle = K.texto; c.fillText(card.counter, W - 30, H - 30); }
+    return cardCanvas;
+  }
   const imgW = hasImg ? Math.round(W * 0.42) : 0;
   if (hasImg) {
     // imagen a la derecha, recortada para llenar
@@ -546,6 +562,7 @@ function renderCardFace(card, W, H) {
   let y = 86 + (H - 86 - 30 - blockH) / 2;
   for (const l of lines) { drawParts(c, l, px, y, K.texto, accent, true); y += size * 1.02; }
   if (hasSub) { c.font = fontB(st, 34, 800); c.fillStyle = hexA(K.texto, 0.85); c.fillText(card.subtitle.toUpperCase(), px, y + 8); }
+  if (card.counter) { c.font = tf(34); c.textAlign = 'right'; c.textBaseline = 'alphabetic'; c.fillStyle = K.texto; c.fillText(card.counter, W - 30, H - 26); }
   return cardCanvas;
 }
 // dibuja una imagen girada en Y con perspectiva real (por columnas)
@@ -568,6 +585,25 @@ function drawPerspective(c, src, cx, cy, W, H, angY, angX) {
     if (sa > 0) { lg.addColorStop(0, 'rgba(0,0,0,0)'); lg.addColorStop(1, '#000'); } else { lg.addColorStop(0, '#000'); lg.addColorStop(1, 'rgba(0,0,0,0)'); }
     c.fillStyle = lg; c.fill(); c.restore();
   }
+}
+function drawComment(c, card, t, fr) {
+  const st = ST(), K = st.colores;
+  const inP = clamp((t - card.start) / 0.3, 0, 1), outP = clamp((card.end - t) / 0.2, 0, 1); const a = Math.min(easeOut(inP), outP); if (a <= 0) return;
+  const W = Math.min(fr.w - 60, 900), x = fr.x + (fr.w - W) / 2, y0 = fr.y + (card.dy == null ? 40 : card.dy) + (1 - easeOut(inP)) * 30;
+  c.save(); c.globalAlpha = a;
+  c.font = fontB(st, 36, 700); const lines = []; let line = [];
+  const words = parts(card.title).flatMap(p => p.s.split(/\s+/).filter(Boolean).map(w => ({ s: w, acc: p.acc })));
+  for (const w of words) { const test = line.concat([w]); const tw = test.reduce((s2, x2) => s2 + c.measureText(x2.s + ' ').width, 0); if (tw > W - 150 && line.length) { lines.push(line); line = [w]; } else line = test; }
+  if (line.length) lines.push(line);
+  const H = 92 + lines.length * 46;
+  c.shadowColor = 'rgba(0,0,0,.5)'; c.shadowBlur = 30; roundRect(c, x, y0, W, H, 24); c.fillStyle = 'rgba(28,28,32,0.94)'; c.fill(); c.shadowColor = 'transparent';
+  c.beginPath(); c.arc(x + 56, y0 + 56, 30, 0, Math.PI * 2); c.fillStyle = card.color || K.secundario; c.fill();
+  c.fillStyle = '#fff'; c.font = fontT(st, 30, 800); c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText((card.label || '?').slice(0, 1).toUpperCase(), x + 56, y0 + 57);
+  c.textAlign = 'left'; c.textBaseline = 'top'; c.font = fontB(st, 28, 700); c.fillStyle = hexA(K.texto, 0.65); c.fillText(card.label || 'Usuario', x + 104, y0 + 24);
+  let yy = y0 + 62;
+  for (const ln of lines) { let xx = x + 104; for (const w of ln) { c.font = fontB(st, 36, w.acc ? 800 : 600); c.fillStyle = w.acc ? K.acento : K.texto; c.fillText(w.s, xx, yy); xx += c.measureText(w.s + ' ').width; } yy += 46; }
+  if (card.subtitle) { c.font = fontB(st, 24, 600); c.fillStyle = hexA(K.texto, 0.45); c.fillText(card.subtitle, x + 104, yy + 4); }
+  c.restore();
 }
 function drawCard3D(c, card, t, fr) {
   const st = ST(), K = st.colores;
@@ -631,12 +667,13 @@ function drawScreen() {
   if (B.frame.on) for (const card of P.cards) if (card.kind === 'panel' && t >= card.start && t < card.end) drawPanel(c, card, t, B.frame);
   const fr3 = B.frame.on ? B.frame : { x: 0, y: B.game.dy, w: 1080, h: B.game.sh };
   for (const card of P.cards) if (card.kind === 'card3d' && t >= card.start && t < card.end) drawCard3D(c, card, t, fr3);
+  for (const card of P.cards) if (card.kind === 'comentario' && t >= card.start && t < card.end) drawComment(c, card, t, fr3);
   if (B.frame.on) {
     const fr = B.frame, f = L.frame || {};
     c.save(); roundRect(c, fr.x, fr.y, fr.w, fr.h, fr.r);
     c.shadowColor = hexA(f.color || K.acento, 0.55); c.shadowBlur = 18; c.lineWidth = f.border == null ? 4 : f.border; c.strokeStyle = f.color || K.acento; c.stroke(); c.restore();
   }
-  for (const card of P.cards) if (card.kind !== 'panel' && card.kind !== 'card3d' && t >= card.start && t < card.end) drawCard(c, card, t);
+  for (const card of P.cards) if (card.kind !== 'panel' && card.kind !== 'card3d' && card.kind !== 'comentario' && t >= card.start && t < card.end) drawCard(c, card, t);
   drawEffects(c, t);
 
   drawSubtitle(c, t);
@@ -961,11 +998,14 @@ function renderInspector(soft) {
       `<div class="btnrow"><button data-act="play">▶ Ver</button><button data-act="del">🗑 Borrar</button></div>`;
   } else if (sel.type === 'card') {
     $('#inspTitle').textContent = 'Gráfico sobre el gameplay';
-    box.innerHTML = field('Tipo', `<select data-k="kind"><option value="card3d" ${o.kind === 'card3d' ? 'selected' : ''}>Tarjeta 3D (gira y flota)</option><option value="panel" ${o.kind === 'panel' ? 'selected' : ''}>Panel (llena el gameplay)</option><option value="tarjeta" ${!o.kind || o.kind === 'tarjeta' ? 'selected' : ''}>Tarjeta plana</option></select>`) +
+    box.innerHTML = field('Tipo', `<select data-k="kind"><option value="card3d" ${o.kind === 'card3d' ? 'selected' : ''}>Tarjeta 3D (gira y flota)</option><option value="comentario" ${o.kind === 'comentario' ? 'selected' : ''}>Comentario (gancho)</option><option value="panel" ${o.kind === 'panel' ? 'selected' : ''}>Panel (llena el gameplay)</option><option value="tarjeta" ${!o.kind || o.kind === 'tarjeta' ? 'selected' : ''}>Tarjeta plana</option></select>`) +
       (o.kind === 'card3d' ? `<div class="row">` + field('Tamaño', `<input type="range" min="0.5" max="0.95" step="0.01" data-k="scale" value="${o.scale || 0.78}">`) + field('Entra por', `<select data-k="side"><option value="left" ${o.side !== 'right' ? 'selected' : ''}>izquierda</option><option value="right" ${o.side === 'right' ? 'selected' : ''}>derecha</option></select>`) + `</div>` +
         field('Imagen (opcional)', `<select data-k="image"><option value="">(sin imagen: usa el icono)</option>${Array.from(new Set([o.image, ...mediaList.filter(f => /\.(png|jpe?g|webp)$/i.test(f))].filter(Boolean))).map(f => `<option ${f === o.image ? 'selected' : ''}>${esc(f)}</option>`).join('')}</select>`) +
+        `<div class="row">` + field('Diseño', `<select data-k="style"><option value="" ${o.style !== 'imagen' ? 'selected' : ''}>Texto + imagen</option><option value="imagen" ${o.style === 'imagen' ? 'selected' : ''}>Imagen completa</option></select>`) + field('Contador (ej. 01/06)', `<input type="text" data-k="counter" value="${esc(o.counter || '')}">`) + `</div>` +
+        `<div class="row">` + field('Mover x', num('dx', o.dx || 0, 2)) + field('Mover y', num('dy', o.dy || 0, 2)) + `</div>` +
         `<label class="chk"><input type="checkbox" data-k="particles" ${o.particles !== false ? 'checked' : ''}> Partículas al entrar</label>` : '') +
-      (o.kind === 'panel' || o.kind === 'card3d' ? field('Etiqueta pequeña de arriba', `<input type="text" data-k="label" value="${esc(o.label || '')}">`) : '') +
+      (o.kind === 'comentario' ? `<div class="small">Etiqueta = nombre de quien comenta; Título = el comentario (*palabras* en amarillo); Subtítulo = "hace 2 h · Responder"</div>` : '') +
+      (o.kind === 'panel' || o.kind === 'card3d' || o.kind === 'comentario' ? field('Etiqueta pequeña de arriba', `<input type="text" data-k="label" value="${esc(o.label || '')}">`) : '') +
       field('Título', `<input type="text" data-k="title" value="${esc(o.title)}">`) +
       field('Subtítulo (opcional)', `<input type="text" data-k="subtitle" value="${esc(o.subtitle || '')}">`) +
       `<div class="small">Pon entre *asteriscos* la palabra que va en color: Stand *Huawei*</div>` +
